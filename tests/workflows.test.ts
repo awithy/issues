@@ -114,6 +114,36 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await api.deleteProject(other.projectId);
     await api.deleteProject(p.projectId); // Parent and child are both removed in one cascade.
   });
+  await t.test('undirected issue links across projects, unlinking, and deletion cleanup', async () => {
+    const p = await api.createProject('Links', 'LINK');
+    const other = await api.createProject('Related work', 'REL');
+    const a = await api.createIssue(p.projectId, { title: 'First' });
+    const b = await api.createIssue(p.projectId, { title: 'Second' });
+    const c = await api.createIssue(other.projectId, { title: 'Cross-project issue' });
+    assert.deepEqual(a.linkedIssues, []);
+    await Promise.all([api.linkIssue(a.issueKey, b.issueId), bob.linkIssue(b.issueKey, a.issueId)]);
+    assert.equal((await pool.query('SELECT 1 FROM issue_links')).rowCount, 1);
+    await api.linkIssue(a.issueId, c.issueKey);
+    assert.deepEqual((await api.issue(a.issueKey)).linkedIssues.map(i => i.issueKey), [b.issueKey, c.issueKey]);
+    assert.deepEqual((await bob.issue(b.issueId)).linkedIssues.map(i => i.issueId), [a.issueId]);
+    assert.deepEqual((await api.issue(c.issueId)).linkedIssues, [{ issueId: a.issueId, projectId: p.projectId, issueKey: a.issueKey, title: a.title }]);
+    assert.equal((await api.issues(p.projectId)).find(i => i.issueId === a.issueId)!.linkedIssues.length, 2);
+    await api.updateIssue(b.issueId, { title: 'Renamed linked issue' });
+    assert.equal((await api.issue(a.issueId)).linkedIssues[0]!.title, 'Renamed linked issue');
+    await assert.rejects(api.linkIssue(a.issueId, a.issueKey), failure(400));
+    await assert.rejects(api.linkIssue(a.issueId, 'REL-99999'), failure(404));
+    await bob.unlinkIssue(b.issueKey, a.issueKey);
+    await api.unlinkIssue(a.issueId, b.issueId); // Removing an absent link is harmless.
+    assert.deepEqual((await api.issue(b.issueId)).linkedIssues, []);
+    assert.deepEqual((await api.issue(a.issueId)).linkedIssues.map(i => i.issueId), [c.issueId]);
+    await api.linkIssue(b.issueId, a.issueId);
+    await api.deleteIssue(b.issueId);
+    assert.deepEqual((await api.issue(a.issueId)).linkedIssues.map(i => i.issueId), [c.issueId]);
+    await api.deleteProject(other.projectId);
+    assert.deepEqual((await api.issue(a.issueId)).linkedIssues, []);
+    assert.equal((await pool.query('SELECT 1 FROM issue_links')).rowCount, 0);
+    await api.deleteProject(p.projectId);
+  });
   await t.test('any-to-any status transitions and project-scoped status validation', async () => {
     for (const name of ['archived', 'design', 'done', 'backlog']) {
       const status = project.issueStatuses.find(s => s.title === name)!;
@@ -176,6 +206,12 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       assert.equal(child.issueType, 'Sub-Task'); assert.equal(child.parentIssueId, created.issueId);
       const converted = JSON.parse(await cli('--json', 'issue', 'update', child.issueKey, '--parent', '', '--issue-type', 'Task')) as Issue;
       assert.equal(converted.issueType, 'Task'); assert.equal(converted.parentIssueId, null);
+      const linked = JSON.parse(await cli('--json', 'issue', 'link', created.issueKey, child.issueKey)) as Issue;
+      assert.equal(linked.linkedIssues[0]!.issueId, child.issueId);
+      assert.equal(JSON.parse(await cli('--json', 'issue', 'links', child.issueKey))[0].issueKey, created.issueKey);
+      assert.match(await cli('issue', 'show', created.issueKey), /Linked issues/);
+      await cli('issue', 'unlink', child.issueKey, created.issueKey);
+      assert.deepEqual(JSON.parse(await cli('--json', 'issue', 'links', created.issueKey)), []);
       await cli('issue', 'delete', child.issueKey, '--yes');
       assert.match(await cli('issue', 'list', 'CLI'), /From CLI/);
       const notes = join(temp, 'notes.md'); await writeFile(notes, '## Updated via file');
@@ -209,7 +245,7 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.project(project.projectId), failure(404));
     await assert.rejects(api.issue(remaining.issueId), failure(404));
     await assert.rejects(api.download(remainingFile.attachmentId), failure(404));
-    for (const table of ['projects', 'issues', 'issue_statuses', 'attachments']) assert.equal((await pool.query('SELECT 1 FROM ' + table)).rowCount, 0);
+    for (const table of ['projects', 'issues', 'issue_statuses', 'attachments', 'issue_links']) assert.equal((await pool.query('SELECT 1 FROM ' + table)).rowCount, 0);
   });
   await t.test('expired sessions and revoked logout tokens cannot access the API', async () => {
     await pool.query("UPDATE sessions SET expires_at=now()-interval '1 minute' WHERE username='bob'");

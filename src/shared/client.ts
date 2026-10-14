@@ -34,6 +34,8 @@ export class ApiClient {
   createIssue(projectId: number, data: IssueInput) { return this.request<Issue>('/projects/' + projectId + '/issues', { method: 'POST', body: JSON.stringify(data) }); }
   updateIssue(id: number | string, data: Partial<IssueInput>) { return this.request<Issue>('/issues/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }); }
   deleteIssue(id: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id), { method: 'DELETE' }); }
+  linkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'PUT' }); }
+  unlinkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'DELETE' }); }
   upload(id: number | string, file: Blob, filename: string) {
     const form = new FormData(); form.set('file', file, filename);
     return this.request<Attachment>('/issues/' + encodeURIComponent(id) + '/attachments', { method: 'POST', body: form });

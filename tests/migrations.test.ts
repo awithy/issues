@@ -22,5 +22,6 @@ test('upgrade an existing database without losing issues; migrations run only on
   await Promise.all([migrate(pool), migrate(pool)]);
   const issue = (await pool.query('SELECT title, issue_type, parent_issue_id FROM issues')).rows[0];
   assert.deepEqual(issue, { title: 'Keep this issue', issue_type: 'Issue', parent_issue_id: null });
-  assert.deepEqual((await pool.query('SELECT filename FROM schema_migrations ORDER BY filename')).rows, [{ filename: '001.sql' }, { filename: '002.sql' }]);
+  assert.deepEqual((await pool.query('SELECT filename FROM schema_migrations ORDER BY filename')).rows, [{ filename: '001.sql' }, { filename: '002.sql' }, { filename: '003.sql' }]);
+  assert.equal((await pool.query('SELECT 1 FROM issue_links')).rowCount, 0);
 });

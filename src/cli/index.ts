@@ -68,6 +68,7 @@ function showIssue(issue: Issue) {
   console.log('Type: ' + issue.issueType + ' | Parent issue ID: ' + (issue.parentIssueId ?? 'None'));
   console.log('Status: ' + issue.status.title + ' | Assignee: ' + (issue.assignee || 'Unassigned') + ' | Labels: ' + (issue.labels.join(', ') || 'None'));
   console.log('\nDescription\n' + (issue.description || '—') + '\n\nNotes\n' + (issue.notes || '—'));
+  if (issue.linkedIssues.length) { console.log('\nLinked issues'); console.table(issue.linkedIssues.map(i => ({ key: i.issueKey, title: i.title }))); }
   if (issue.attachments.length) console.table(issue.attachments.map(a => ({ id: a.attachmentId, filename: a.filename, bytes: a.size })));
 }
 program.command('login <username>').description('Log in (password prompt or ISSUES_PASSWORD environment variable)')
@@ -112,6 +113,13 @@ issues.command('show <issue>').action(async ref => showIssue(await (await api())
 issueOptions(issues.command('update <issue>').option('--title <title>')).action(async (ref, options) => {
   const client = await api(); const current = await client.issue(ref); const p = await client.project(current.projectId);
   showIssue(await client.updateIssue(ref, await input(options, p)));
+});
+issues.command('links <issue>').description('List undirected links to other issues').action(async ref => print((await (await api()).issue(ref)).linkedIssues));
+issues.command('link <issue> <other-issue>').description('Link two issues (visible from either issue)').action(async (ref, other) => {
+  const client = await api(); await client.linkIssue(ref, other); showIssue(await client.issue(ref));
+});
+issues.command('unlink <issue> <other-issue>').description('Remove a link without deleting either issue').action(async (ref, other) => {
+  const client = await api(); await client.unlinkIssue(ref, other); showIssue(await client.issue(ref));
 });
 issues.command('delete <issue>').option('--yes', 'Confirm permanent issue and attachment deletion').action(async (ref, options) => { confirm(options); await (await api()).deleteIssue(ref); console.log('Issue permanently deleted'); });
 const attachments = program.command('attachment').description('Manage DB-stored files');

@@ -9,7 +9,10 @@ const projectSelect =   "SELECT p.project_id AS \"projectId\", p.title, p.key, "
 const attachmentColumns = 'attachment_id AS "attachmentId", filename, content_type AS "contentType", octet_length(data) AS size, created_at AS "createdAt"';
 const issueSelect =   "SELECT i.issue_id AS \"issueId\", i.project_id AS \"projectId\", p.key || '-' || i.issue_number AS \"issueKey\", " +
   "i.issue_type AS \"issueType\", i.parent_issue_id AS \"parentIssueId\", i.title, i.description, i.notes, i.labels, i.assignee, i.created_at AS \"createdAt\", i.updated_at AS \"updatedAt\", " + statusJson + " AS status, " +
-  "COALESCE((SELECT json_agg(a ORDER BY a.\"attachmentId\") FROM (SELECT " + attachmentColumns + " FROM attachments WHERE issue_id=i.issue_id) a), '[]') AS attachments " +
+  "COALESCE((SELECT json_agg(a ORDER BY a.\"attachmentId\") FROM (SELECT " + attachmentColumns + " FROM attachments WHERE issue_id=i.issue_id) a), '[]') AS attachments, " +
+  "COALESCE((SELECT json_agg(json_build_object('issueId', linked.issue_id, 'projectId', linked.project_id, 'issueKey', lp.key || '-' || linked.issue_number, 'title', linked.title) ORDER BY lp.key, linked.issue_number) " +
+  "FROM issue_links l JOIN issues linked ON linked.issue_id=CASE WHEN l.issue_id_a=i.issue_id THEN l.issue_id_b ELSE l.issue_id_a END " +
+  "JOIN projects lp ON lp.project_id=linked.project_id WHERE l.issue_id_a=i.issue_id OR l.issue_id_b=i.issue_id), '[]') AS \"linkedIssues\" " +
   "FROM issues i JOIN projects p USING (project_id) JOIN issue_statuses s ON s.status_id=i.status_id";
 function issueWhere(ref: string | number) {
   return /^\d+$/.test(String(ref)) ? 'i.issue_id=$1' : "p.key || '-' || i.issue_number=$1";
@@ -122,6 +125,19 @@ export class Repository {
   async deleteIssue(ref: string | number) {
     const issue = await this.issue(ref);
     await this.pool.query('DELETE FROM issues WHERE issue_id=$1', [issue.issueId]);
+  }
+  private async linkPair(ref: string | number, other: string | number) {
+    const [a, b] = await Promise.all([this.issue(ref), this.issue(other)]);
+    if (a.issueId === b.issueId) throw new HttpError(400, 'An issue cannot link to itself');
+    return [Math.min(a.issueId, b.issueId), Math.max(a.issueId, b.issueId)];
+  }
+  async linkIssue(ref: string | number, other: string | number) {
+    const pair = await this.linkPair(ref, other);
+    await this.pool.query('INSERT INTO issue_links(issue_id_a, issue_id_b) VALUES ($1,$2) ON CONFLICT DO NOTHING', pair);
+  }
+  async unlinkIssue(ref: string | number, other: string | number) {
+    const pair = await this.linkPair(ref, other);
+    await this.pool.query('DELETE FROM issue_links WHERE issue_id_a=$1 AND issue_id_b=$2', pair);
   }
   async upload(ref: string | number, file: { originalname: string; mimetype: string; buffer: Buffer }) {
     const issue = await this.issue(ref);

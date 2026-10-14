@@ -8,6 +8,7 @@ For architecture, data models, API contracts, authentication details, testing st
 
 - Projects and issues with keys such as `WEB-123`.
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
+- Undirected issue links, including across projects, visible from either issue.
 - Searchable issue table, status filters, and inline status changes.
 - Markdown Description and Notes with previews, labels, and free-text assignees.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
@@ -94,6 +95,10 @@ npm run cli -- issue update WEB-1 --status backlog --notes-file ./notes.md
 npm run cli -- issue update WEB-1 --description-file ./description.md
 npm run cli -- issue update WEB-1 --labels "" --assignee ""
 
+npm run cli -- issue link WEB-1 WEB-2
+npm run cli -- issue links WEB-1
+npm run cli -- issue unlink WEB-2 WEB-1
+
 npm run cli -- attachment upload WEB-1 ./design.png
 npm run cli -- attachment list WEB-1
 npm run cli -- attachment download 1 ./downloaded-design.png
@@ -104,7 +109,7 @@ npm run cli -- project delete WEB --yes
 npm run cli -- logout
 ```
 
-Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. `--parent` accepts an issue key or ID; issue types default to `Issue`. In the web editor, clear the parent before selecting a different type, then save both changes together. CLI deletes require `--yes` because they cannot be undone.
+Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. `--parent` accepts an issue key or ID; issue types default to `Issue`. In the web editor, clear the parent before selecting a different type, then save both changes together. Issue links accept keys or IDs for both issues and can be added or removed from either end. Unlinking does not delete either issue. CLI deletes require `--yes` because they cannot be undone.
 
 Global options:
 

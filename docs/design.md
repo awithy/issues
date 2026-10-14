@@ -20,6 +20,7 @@ Guiding principles:
 - Create, view, rename, and permanently delete projects.
 - Create, list, edit, and permanently delete issues.
 - Use global issue types and required parent relationships for Sub-Tasks.
+- Link any two distinct issues with an undirected relationship, including across projects.
 - View issues in a table; search and filter by status.
 - Edit separate Markdown Description and Notes fields.
 - Configure statuses for each project.
@@ -42,7 +43,7 @@ Node CLI ──────┘                                                  
                                                                   │
                                                                Postgres
                                                       projects, statuses, issues,
-                                                        attachments, sessions
+                                                   issue_links, attachments, sessions
 
 Local user-config helper ── bcrypt hashes ── config/users.json ── API startup
 ```
@@ -79,6 +80,8 @@ Project 1 ───── * IssueStatus
    │                 │
    │                 └──── * Issue
    └────────────────────── * Issue 1 ───── * Attachment
+                              │
+                              └──── * IssueLink * ───── Issue
 
 Configured User ─── Session
                   (username checked against config, not a database user table)
@@ -140,6 +143,7 @@ The first status is the default for new issues. Every project must retain at lea
 | `labels` | PostgreSQL `text[]`; defaults to an empty array. |
 | `assignee` | Free text; defaults to an empty string. No user foreign key. |
 | `attachments` | Attachment metadata loaded from `attachments`; blobs are not embedded in issue JSON. |
+| `linkedIssues` | Summaries of directly linked issues: `issueId`, `projectId`, `issueKey`, and current `title`. Defaults to `[]`. |
 | `createdAt`, `updatedAt` | Database timestamps; issue patches advance `updatedAt`. |
 
 An assignee can be a configured username, someone external to the tracker, or a team name. Labels are simple strings, not a managed taxonomy. Updating labels replaces the array. Description and Notes are plain Markdown source, not stored HTML.
@@ -147,6 +151,14 @@ An assignee can be a configured username, someone external to the tracker, or a 
 Issue types are defined once in the shared contract, not per project, and exposed at `GET /api/issue-types`. Any issue can change type. Parents can be any existing issue, including in another project; self-parenting and cycles are rejected.
 
 A saved Sub-Task must always have a parent. To convert it to another type, explicitly clear its parent with `parentIssueId: null` in the same patch as the new type. Clearing only the parent is invalid, as is changing the type while retaining the parent. The web editor requires clearing the parent selection before enabling type changes; it then saves both changes atomically. Sub-Tasks can change parents without changing type.
+
+### Issue links
+
+Links are undirected, untyped relationships between two distinct existing issues. They are independent of issue types and parent relationships; any issues may be linked, including across projects. Multiple links and cycles are allowed, but self-links are not. Linking A to B exposes B on A and A on B; it does not imply any transitive links.
+
+The `issue_links` table stores one row per pair with `issue_id_a < issue_id_b`. A composite primary key prevents duplicate or reversed pairs, and both columns reference issues with `ON DELETE CASCADE`. The primary key indexes the first endpoint; a separate index covers the second. The repository sorts IDs before inserting and uses `ON CONFLICT DO NOTHING`, so repeated or concurrent requests to link the same pair are harmless. Unlinking is also idempotent while both issues exist.
+
+Issue responses include `linkedIssues`, sorted by project key then issue number. Summaries are read from the current issues rather than copied into the link, so title changes are reflected immediately. Link mutations are separate from issue patches and do not advance either issue's `updatedAt` timestamp. Removing a link never deletes an issue; deleting either endpoint removes the link without affecting the other issue.
 
 ### Attachment
 
@@ -178,6 +190,7 @@ The schema enforces:
 - Project-to-issue, project-to-status, and issue-to-attachment cascading deletion.
 - Allowed issue types, the exact relationship between Sub-Task type and non-null parent, and no self-parenting.
 - A parent foreign key that prevents orphaning Sub-Tasks on deletion. Longer cycles are rejected by the repository.
+- Unique canonical issue-link pairs, no self-links, and cascading removal of links when either endpoint is deleted.
 
 Indexes support issue lookup by project/status, parent references, and attachment lookup by issue. Status-name uniqueness and the requirement to retain a status are enforced by the API, rather than additional SQL constraints.
 
@@ -284,7 +297,9 @@ The API is rooted at `/api`. Request and response bodies are JSON except attachm
 | POST | `/projects/:id/issues` | Create an issue. |
 | GET | `/issues/:id-or-key` | Read issue details and attachment metadata. |
 | PATCH | `/issues/:id-or-key` | Update issue fields. |
-| DELETE | `/issues/:id-or-key` | Permanently delete an issue and its attachments. |
+| DELETE | `/issues/:id-or-key` | Permanently delete an issue, its attachments, and its links. |
+| PUT | `/issues/:id-or-key/links/:other-id-or-key` | Ensure an undirected link exists; no request body. |
+| DELETE | `/issues/:id-or-key/links/:other-id-or-key` | Remove an undirected link without deleting either issue. |
 | POST | `/issues/:id-or-key/attachments` | Upload multipart field `file`. |
 | GET | `/attachments/:id` | Download authenticated binary content. |
 | DELETE | `/attachments/:id` | Permanently delete an attachment. |
@@ -306,7 +321,7 @@ Issue creation accepts:
 
 Missing optional fields receive their defaults. Patches accept a non-empty subset of supported fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
 
-Issue responses include `issueType`, nullable `parentIssueId`, the current status object and attachment metadata, not binary content. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
+Issue responses include `issueType`, nullable `parentIssueId`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
 
 Downloads use `Content-Disposition: attachment`, `application/octet-stream`, and `Cache-Control: no-store`. Uploaded MIME metadata is retained but does not cause files to be served as executable inline content.
 
@@ -340,6 +355,7 @@ Its main surfaces are:
 - **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts.
 - **Issue detail editor:** explicit save for title, type, parent, Description, Notes, status, labels, and assignee. Parent selection includes issues across projects.
 - **Markdown fields:** independent Write/Preview controls using `react-markdown` and `remark-gfm`; raw HTML is not rendered.
+- **Linked issues section:** enter an issue key or ID to link it, navigate to linked issues, or unlink from either endpoint. Links persist immediately, independently of unsaved editor fields, and are available after issue creation.
 - **Attachment section:** files can be attached after issue creation; upload/delete operations persist separately from unsaved text edits.
 - **Project settings:** rename project; add, rename, reorder, and remove statuses; edit completion flags; delete the project.
 
@@ -351,6 +367,8 @@ The CLI is built with Commander and the shared `ApiClient`. Command groups are `
 
 Project arguments accept a key or ID. Issue arguments accept a key or ID. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
+`issue link <issue> <other-issue>` adds an undirected link; `issue links <issue>` lists linked summaries, and `issue unlink <issue> <other-issue>` removes a link from either end without confirmation or issue deletion. `issue show` also includes linked issues. Both endpoints accept an issue key or ID.
+
 Lists use terminal tables by default; `--json` exposes structured API data for scripts. Errors print a readable message and set a non-zero exit code. `--api` and `ISSUES_API_URL` select the server. The CLI reads/writes local input, download, and session files, but never application database records.
 
 ## 8. Permanent deletion
@@ -359,15 +377,17 @@ Deletion uses SQL `DELETE`, not a state transition:
 
 ```text
 Delete attachment ── remove its row and stored blob
-Delete issue ──────── remove issue + cascade to its attachments
-Delete project ───── remove project + cascade to its issues, attachments, and statuses
+Delete issue ──────── remove issue + cascade to its attachments and links
+Delete project ───── remove project + cascade to its issues, attachments, links, and statuses
 ```
 
 Database foreign keys perform the cascades, so dependent removal is part of the database delete operation rather than a sequence of client cleanup calls. Issue deletion preserves the surviving project’s counter. Project deletion removes that counter with the project.
 
 Parent deletion is rejected with `409` while any child Sub-Task would survive the deletion. Reparent, convert, or delete those children first. Deleting a project can remove parents and children within that project together, but is blocked if Sub-Tasks in another project still reference its issues. Children are not silently detached or cascaded through the parent relationship.
 
-The web app asks for confirmation before destructive actions; the CLI requires `--yes`. These are client-side safeguards, not an API confirmation protocol: an authenticated API caller can directly issue a delete.
+Issue links never block deletion: links to deleted issues disappear, including links from surviving issues in other projects. Unlinking only removes the relationship.
+
+The web app asks for confirmation before permanent record deletion; the CLI requires `--yes` for those deletes. These are client-side safeguards, not an API confirmation protocol: an authenticated API caller can directly issue a delete.
 
 “Permanent” means the data is removed from the live application and there is no restore endpoint. It does not promise secure erasure of database storage, transaction logs, or previous backups. Operators must manage backup retention separately.
 
@@ -385,7 +405,7 @@ Runtime configuration is read from environment variables, with `.env` support:
 
 Startup validates users, connects to Postgres, applies schema migrations, and starts serving requests. SIGINT/SIGTERM initiate HTTP server shutdown and then close the database pool. Run the server from the repository root because schema, default user-config, and built web paths are relative to that directory.
 
-Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent.
+Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues.
 
 For production:
 
@@ -413,6 +433,7 @@ Primary coverage includes:
 - Project creation, retrieval, renaming, and default statuses.
 - Issue creation, retrieval, editing, and Description/Notes persistence.
 - Global issue types, parent assignment/reparenting, Sub-Task conversion, and prevention of orphaning or cyclic parent relationships.
+- Undirected links within and across projects, symmetric visibility, concurrent duplicate prevention, unlinking from either endpoint, and deletion cleanup.
 - Upgrading an existing schema without losing issues, including repeat/concurrent migration runs.
 - Free-text assignees, labels, search, and status filtering.
 - Any-to-any transitions and editable status configuration.

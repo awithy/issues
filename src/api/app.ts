@@ -88,6 +88,8 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   router.get('/issues/:ref', async (req, res) => res.json(await repo.issue(issueRef(req.params.ref))));
   router.patch('/issues/:ref', async (req, res) => res.json(await repo.updateIssue(issueRef(req.params.ref), issueInput.partial().refine(nonempty, 'Provide a field to update').parse(req.body))));
   router.delete('/issues/:ref', async (req, res) => { await repo.deleteIssue(issueRef(req.params.ref)); res.sendStatus(204); });
+  router.put('/issues/:ref/links/:other', async (req, res) => { await repo.linkIssue(issueRef(req.params.ref), issueRef(req.params.other)); res.sendStatus(204); });
+  router.delete('/issues/:ref/links/:other', async (req, res) => { await repo.unlinkIssue(issueRef(req.params.ref), issueRef(req.params.other)); res.sendStatus(204); });
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 0 } });
   router.post('/issues/:ref/attachments', upload.single('file'), async (req, res) => {
     if (!req.file) throw new HttpError(400, 'Attach a file using the file field');

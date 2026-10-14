@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { createApp } from '../src/api/app.js';
 import { databaseUrl, migrate } from '../src/api/db.js';
+import type { Issue, Project } from '../src/shared/types.js';
 
 let server: Server;
 let pool: pg.Pool;
@@ -140,4 +141,32 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await page.getByRole('button', { name: 'Log out', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
   expect(errors).toEqual([]);
+});
+
+test('issue links: cross-project navigation, symmetric display, and unlinking', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Linked work', key: 'LINK' } })).json() as Project;
+  const other = await (await page.request.post(url + '/api/projects', { data: { title: 'Related work', key: 'REL' } })).json() as Project;
+  const a = await (await page.request.post(url + '/api/projects/' + project.projectId + '/issues', { data: { title: 'First linked issue' } })).json() as Issue;
+  const b = await (await page.request.post(url + '/api/projects/' + other.projectId + '/issues', { data: { title: 'Other project issue' } })).json() as Issue;
+  await page.goto(url + '/#/projects/' + project.projectId + '/issues/' + a.issueKey);
+  await expect(page.getByText('No linked issues.', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: 'Notes', exact: true }).fill('Unsaved notes');
+  await page.getByRole('textbox', { name: 'Issue to link', exact: true }).fill(b.issueKey.toLowerCase());
+  await page.getByRole('button', { name: 'Link issue', exact: true }).click();
+  await expect(page.getByRole('link', { name: b.issueKey + ' — ' + b.title, exact: true })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue('Unsaved notes');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Changes saved');
+  await page.reload();
+  await page.getByRole('link', { name: b.issueKey + ' — ' + b.title, exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(b.issueKey + '$'));
+  await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(b.title);
+  await expect(page.getByRole('link', { name: a.issueKey + ' — ' + a.title, exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Unlink ' + a.issueKey, exact: true }).click();
+  await expect(page.getByText('No linked issues.', { exact: true })).toBeVisible();
+  await page.goto(url + '/#/projects/' + project.projectId + '/issues/' + a.issueKey);
+  await expect(page.getByText('No linked issues.', { exact: true })).toBeVisible();
+  await page.request.delete(url + '/api/projects/' + other.projectId);
+  await page.request.delete(url + '/api/projects/' + project.projectId);
 });
