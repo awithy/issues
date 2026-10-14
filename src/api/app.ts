@@ -13,11 +13,13 @@ import { z } from 'zod';
 import { Repository } from './repository.js';
 import { HttpError } from './db.js';
 import type { User } from './users.js';
+import { ISSUE_TYPES } from '../shared/types.js';
 
 const id = z.coerce.number().int().positive().max(2147483647);
 const title = z.string().trim().min(1).max(300);
 const issueInput = z.object({
-  title, description: z.string().max(500000).optional(), notes: z.string().max(500000).optional(),
+  title, issueType: z.enum(ISSUE_TYPES).optional(), parentIssueId: id.nullable().optional(),
+  description: z.string().max(500000).optional(), notes: z.string().max(500000).optional(),
   statusId: id.optional(), labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
   assignee: z.string().trim().max(300).optional(),
 }).strict();
@@ -72,6 +74,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
     await pool.query('DELETE FROM sessions WHERE token_hash=$1', [res.locals.tokenHash]);
     res.clearCookie(cookieName, cookieOptions); res.sendStatus(204);
   });
+  router.get('/issue-types', (_req, res) => res.json(ISSUE_TYPES));
   router.get('/projects', async (_req, res) => res.json(await repo.projects()));
   router.post('/projects', async (req, res) => { const input = projectInput.parse(req.body); res.status(201).json(await repo.createProject(input.title, input.key)); });
   router.get('/projects/:id', async (req, res) => res.json(await repo.project(id.parse(req.params.id))));
@@ -107,7 +110,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
     if (error instanceof HttpError) { res.status(error.status).json({ error: error.message }); return; }
     if (error instanceof multer.MulterError) { res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'File is too large (maximum 25 MB)' : error.message }); return; }
     if (error.code === '23505') { res.status(409).json({ error: 'That project key already exists' }); return; }
-    if (error.code === '23503') { res.status(409).json({ error: 'A related record changed. Refresh and try again.' }); return; }
+    if (error.code === '23503') { res.status(409).json({ error: error.constraint === 'issues_parent_issue_id_fkey' ? 'Move or delete child Sub-Tasks before deleting their parent issue or project.' : 'A related record changed. Refresh and try again.' }); return; }
     if (error.type === 'entity.parse.failed' || error.type === 'entity.too.large') { res.status(error.status).json({ error: error.type === 'entity.too.large' ? 'Request is too large' : 'Invalid JSON' }); return; }
     console.error(error); res.status(500).json({ error: 'Internal server error' });
   };

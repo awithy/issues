@@ -19,6 +19,7 @@ Guiding principles:
 
 - Create, view, rename, and permanently delete projects.
 - Create, list, edit, and permanently delete issues.
+- Use global issue types and required parent relationships for Sub-Tasks.
 - View issues in a table; search and filter by status.
 - Edit separate Markdown Description and Notes fields.
 - Configure statuses for each project.
@@ -52,7 +53,7 @@ Local user-config helper ── bcrypt hashes ── config/users.json ── AP
 | --- | --- | --- |
 | API | HTTP routing, authentication, runtime validation, response/error handling | `src/api/app.ts` |
 | Repository | Parameterized SQL, transactions, issue numbering, status membership, data retrieval | `src/api/repository.ts` |
-| Database setup | Connection configuration, transaction helper, initial schema | `src/api/db.ts`, `db/001.sql` |
+| Database setup | Connection configuration, transaction helper, schema migrations | `src/api/db.ts`, `db/*.sql` |
 | Shared contract | Domain types, request types, default statuses | `src/shared/types.ts` |
 | Shared client | JSON requests, bearer/cookie authentication, multipart uploads, binary downloads | `src/shared/client.ts` |
 | Web app | Login, project navigation, issue table, Markdown editor, attachments, project settings | `web/src/` |
@@ -131,6 +132,8 @@ The first status is the default for new issues. Every project must retain at lea
 | `issueNumber` | Internal per-project number, unique together with `projectId`. |
 | `issueKey` | Computed from project key and issue number, e.g. `WEB-123`; not separately stored. |
 | `title` | Required text; up to 300 characters. |
+| `issueType` | `IssueType` is a string; stored as `issue_type`. Global allowed values: Bug, Issue, Task, Sub-Task, Story. Defaults to Issue. |
+| `parentIssueId` | Nullable integer self-reference, stored as `parent_issue_id`. Required for Sub-Tasks and forbidden for all other types. |
 | `description` | Markdown source stored as text; defaults to an empty string. |
 | `notes` | Independent Markdown source stored as text; defaults to an empty string. |
 | `status` | Status object in responses; persisted as `status_id`. |
@@ -140,6 +143,10 @@ The first status is the default for new issues. Every project must retain at lea
 | `createdAt`, `updatedAt` | Database timestamps; issue patches advance `updatedAt`. |
 
 An assignee can be a configured username, someone external to the tracker, or a team name. Labels are simple strings, not a managed taxonomy. Updating labels replaces the array. Description and Notes are plain Markdown source, not stored HTML.
+
+Issue types are defined once in the shared contract, not per project, and exposed at `GET /api/issue-types`. Any issue can change type. Parents can be any existing issue, including in another project; self-parenting and cycles are rejected.
+
+A saved Sub-Task must always have a parent. To convert it to another type, explicitly clear its parent with `parentIssueId: null` in the same patch as the new type. Clearing only the parent is invalid, as is changing the type while retaining the parent. The web editor requires clearing the parent selection before enabling type changes; it then saves both changes atomically. Sub-Tasks can change parents without changing type.
 
 ### Attachment
 
@@ -169,8 +176,10 @@ The schema enforces:
 - Unique `(project_id, issue_number)` pairs.
 - A composite foreign key from an issue’s `(project_id, status_id)` to a status in the same project.
 - Project-to-issue, project-to-status, and issue-to-attachment cascading deletion.
+- Allowed issue types, the exact relationship between Sub-Task type and non-null parent, and no self-parenting.
+- A parent foreign key that prevents orphaning Sub-Tasks on deletion. Longer cycles are rejected by the repository.
 
-Indexes support issue lookup by project/status and attachment lookup by issue. Status-name uniqueness and the requirement to retain a status are enforced by the API, rather than additional SQL constraints.
+Indexes support issue lookup by project/status, parent references, and attachment lookup by issue. Status-name uniqueness and the requirement to retain a status are enforced by the API, rather than additional SQL constraints.
 
 ## 4. Identity, transactions, and concurrency
 
@@ -203,6 +212,10 @@ A project patch can replace its status list:
 Existing IDs must be preserved when renaming or reordering a status. Renaming updates its display name for all associated issues without rewriting each issue. Project title and status changes in a single request are transactional: a failed status removal also rolls back the title change.
 
 Issue creation and issue updates use the same project-row locking approach to coordinate with status edits. This is intentionally coarse-grained but appropriate for a small tracker.
+
+### Parent relationships
+
+Parent graph changes take a schema-scoped transaction advisory lock before locking the project, because parents may span projects. This serializes parent assignments and prevents concurrent edits from forming a cycle. Updates re-read the issue after acquiring the project lock, then validate the merged type and parent against the latest saved state. Database constraints independently enforce valid type/parent combinations and existing parent IDs.
 
 ### Concurrent editing
 
@@ -261,6 +274,7 @@ The API is rooted at `/api`. Request and response bodies are JSON except attachm
 | POST | `/auth/login` | Authenticate and issue a session. |
 | POST | `/auth/logout` | Revoke the current session. |
 | GET | `/auth/me` | Return the current username. |
+| GET | `/issue-types` | List the global issue types. |
 | GET | `/projects` | List projects and their ordered statuses. |
 | POST | `/projects` | Create a project and default statuses. |
 | GET | `/projects/:id` | Read a project. |
@@ -280,6 +294,8 @@ Issue creation accepts:
 ```ts
 {
   title: string;
+  issueType?: string; // Bug, Issue, Task, Sub-Task, Story; defaults to Issue
+  parentIssueId?: number | null; // non-null exactly when issueType is Sub-Task
   description?: string;
   notes?: string;
   statusId?: number;
@@ -290,7 +306,7 @@ Issue creation accepts:
 
 Missing optional fields receive their defaults. Patches accept a non-empty subset of supported fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
 
-Issue responses include the current status object and attachment metadata, not binary content. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
+Issue responses include `issueType`, nullable `parentIssueId`, the current status object and attachment metadata, not binary content. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
 
 Downloads use `Content-Disposition: attachment`, `application/octet-stream`, and `Cache-Control: no-store`. Uploaded MIME metadata is retained but does not cause files to be served as executable inline content.
 
@@ -321,8 +337,8 @@ Its main surfaces are:
 
 - **Login:** username/password form; current session checked on initial load.
 - **Project sidebar:** project selection and creation.
-- **Issue table:** key, title, status, assignee, and labels; inline status changes and attachment counts.
-- **Issue detail editor:** explicit save for title, Description, Notes, status, labels, and assignee.
+- **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts.
+- **Issue detail editor:** explicit save for title, type, parent, Description, Notes, status, labels, and assignee. Parent selection includes issues across projects.
 - **Markdown fields:** independent Write/Preview controls using `react-markdown` and `remark-gfm`; raw HTML is not rendered.
 - **Attachment section:** files can be attached after issue creation; upload/delete operations persist separately from unsaved text edits.
 - **Project settings:** rename project; add, rename, reorder, and remove statuses; edit completion flags; delete the project.
@@ -333,7 +349,7 @@ Search/filter changes request fresh API results after a short delay. Mutations u
 
 The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
 
-Project arguments accept a key or ID. Issue arguments accept a key or ID. Status arguments accept a name or ID, resolved from the project’s API response. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
+Project arguments accept a key or ID. Issue arguments accept a key or ID. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
 Lists use terminal tables by default; `--json` exposes structured API data for scripts. Errors print a readable message and set a non-zero exit code. `--api` and `ISSUES_API_URL` select the server. The CLI reads/writes local input, download, and session files, but never application database records.
 
@@ -348,6 +364,8 @@ Delete project ───── remove project + cascade to its issues, attachmen
 ```
 
 Database foreign keys perform the cascades, so dependent removal is part of the database delete operation rather than a sequence of client cleanup calls. Issue deletion preserves the surviving project’s counter. Project deletion removes that counter with the project.
+
+Parent deletion is rejected with `409` while any child Sub-Task would survive the deletion. Reparent, convert, or delete those children first. Deleting a project can remove parents and children within that project together, but is blocked if Sub-Tasks in another project still reference its issues. Children are not silently detached or cascaded through the parent relationship.
 
 The web app asks for confirmation before destructive actions; the CLI requires `--yes`. These are client-side safeguards, not an API confirmation protocol: an authenticated API caller can directly issue a delete.
 
@@ -365,9 +383,9 @@ Runtime configuration is read from environment variables, with `.env` support:
 | `PUBLIC_ORIGIN` | Exact public browser origin allowed for mutations, useful behind a reverse proxy. |
 | `COOKIE_SECURE` | Enable secure browser cookies; use `true` with HTTPS. |
 
-Startup validates users, connects to Postgres, applies the initial schema, and starts serving requests. SIGINT/SIGTERM initiate HTTP server shutdown and then close the database pool. Run the server from the repository root because schema, default user-config, and built web paths are relative to that directory.
+Startup validates users, connects to Postgres, applies schema migrations, and starts serving requests. SIGINT/SIGTERM initiate HTTP server shutdown and then close the database pool. Run the server from the repository root because schema, default user-config, and built web paths are relative to that directory.
 
-`db/001.sql` is an initial idempotent schema, applied automatically or through `npm run db:migrate`. It uses `CREATE TABLE IF NOT EXISTS`; it is **not a versioned migration system** and will not alter existing tables when their definitions change. Future deployed schema changes need explicit versioned migrations.
+Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent.
 
 For production:
 
@@ -394,6 +412,8 @@ Primary coverage includes:
 - Cookie and bearer authentication, multiple users, logout, and session expiration.
 - Project creation, retrieval, renaming, and default statuses.
 - Issue creation, retrieval, editing, and Description/Notes persistence.
+- Global issue types, parent assignment/reparenting, Sub-Task conversion, and prevention of orphaning or cyclic parent relationships.
+- Upgrading an existing schema without losing issues, including repeat/concurrent migration runs.
 - Free-text assignees, labels, search, and status filtering.
 - Any-to-any transitions and editable status configuration.
 - Exact binary attachment round trips and permanent deletion.
@@ -433,4 +453,4 @@ Install Chromium once with `npx playwright install chromium`. Browser test failu
 | No pagination or live updates | Thin clients and a small API surface. | Large issue lists and multi-user freshness are limited. |
 | Last-write-wins | No version/conflict UI to maintain. | Concurrent edits can overwrite each other. |
 
-Add complexity only when real usage justifies it. Likely next steps, if needed, are versioned migrations, pagination with smaller list responses, optimistic concurrency, and improved user/session administration. Roles, workflow machinery, and moving files out of Postgres should require explicit product decisions rather than being introduced by default.
+Add complexity only when real usage justifies it. Likely next steps, if needed, are pagination with smaller list responses, optimistic concurrency, and improved user/session administration. Roles, workflow machinery, and moving files out of Postgres should require explicit product decisions rather than being introduced by default.

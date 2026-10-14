@@ -1,4 +1,4 @@
-import type { Attachment, Issue, IssueFilters, IssueInput, Project, StatusInput } from './types.js';
+import type { Attachment, Issue, IssueFilters, IssueInput, IssueType, Project, StatusInput } from './types.js';
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
@@ -18,6 +18,7 @@ export class ApiClient {
   login(username: string, password: string) { return this.request<{ username: string; token: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }); }
   logout() { return this.request<void>('/auth/logout', { method: 'POST' }); }
   me() { return this.request<{ username: string }>('/auth/me'); }
+  issueTypes() { return this.request<IssueType[]>('/issue-types'); }
   projects() { return this.request<Project[]>('/projects'); }
   project(id: number) { return this.request<Project>('/projects/' + id); }
   createProject(title: string, key: string) { return this.request<Project>('/projects', { method: 'POST', body: JSON.stringify({ title, key }) }); }

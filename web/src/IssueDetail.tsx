@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { ApiClient } from '../../src/shared/client';
-import type { Attachment, Issue, IssueInput, Project } from '../../src/shared/types';
+import type { Attachment, Issue, IssueInput, IssueType, Project } from '../../src/shared/types';
+import { ISSUE_TYPES } from '../../src/shared/types';
 import { ErrorNotice, MarkdownField, message } from './ui';
 export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted }: {
   api: ApiClient; project: Project; issueKey?: string; onBack: () => void;
@@ -8,6 +9,10 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
 }) {
   const [issue, setIssue] = useState<Issue>();
   const [title, setTitle] = useState('');
+  const [issueType, setIssueType] = useState<IssueType>('Issue');
+  const [parentIssueId, setParentIssueId] = useState<number | null>(null);
+  const [parents, setParents] = useState<Issue[]>([]);
+  const [parentsLoading, setParentsLoading] = useState(false);
   const [description, setDescription] = useState('');
   const [notes, setNotes] = useState('');
   const [statusId, setStatusId] = useState(project.issueStatuses[0].statusId);
@@ -24,10 +29,21 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
     api.issue(issueKey).then(data => {
       if (!active) return;
       setIssue(data); setTitle(data.title); setDescription(data.description); setNotes(data.notes);
+      setIssueType(data.issueType); setParentIssueId(data.parentIssueId);
       setStatusId(data.status.statusId); setLabels(data.labels.join(', ')); setAssignee(data.assignee); setAttachments(data.attachments);
     }).catch(error => { if (active) setError(message(error)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [api, issueKey]);
+  useEffect(() => {
+    if (issueType !== 'Sub-Task') return;
+    let active = true; setParentsLoading(true);
+    api.projects().then(projects => Promise.all(projects.map(p => api.issues(p.projectId))))
+      .then(lists => { if (active) setParents(lists.flat()); })
+      .catch(error => { if (active) setError(message(error)); })
+      .finally(() => { if (active) setParentsLoading(false); });
+    return () => { active = false; };
+  }, [api, issueType]);
+  const parent = parents.find(p => p.issueId === parentIssueId);
   async function run(work: () => Promise<void>) {
     setBusy(true); setError(''); setSaved(false);
     try { await work(); } catch (error) { setError(message(error)); } finally { setBusy(false); }
@@ -35,7 +51,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
   async function save(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
-      const data: IssueInput = { title, description, notes, statusId, assignee, labels: labels.split(',').map(label => label.trim()).filter(Boolean) };
+      const data: IssueInput = { title, issueType, parentIssueId, description, notes, statusId, assignee, labels: labels.split(',').map(label => label.trim()).filter(Boolean) };
       const result = issue ? await api.updateIssue(issue.issueId, data) : await api.createIssue(project.projectId, data);
       setIssue(result); setSaved(true); onSaved(result);
     });
@@ -56,6 +72,17 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
           <MarkdownField label="Notes" value={notes} onChange={setNotes} />
         </div><aside className="detail-meta card">
           <h3>Properties</h3>
+          <label className="field">Issue type<select aria-label="Issue type" value={issueType} disabled={issueType === 'Sub-Task' && parentIssueId !== null} onChange={event => setIssueType(event.target.value)}>
+            {ISSUE_TYPES.map(type => <option key={type} value={type}>{type}</option>)}
+          </select>{issueType === 'Sub-Task' && parentIssueId !== null && <small>Clear the parent before choosing another type.</small>}</label>
+          {issueType === 'Sub-Task' && <>
+            <label className="field">Parent issue<select aria-label="Parent issue" required value={parentIssueId ?? ''} onChange={event => setParentIssueId(event.target.value ? Number(event.target.value) : null)}>
+              <option value="">{parentsLoading ? 'Loading parents…' : 'No parent'}</option>
+              {parentIssueId !== null && !parent && <option value={parentIssueId}>Issue #{parentIssueId}</option>}
+              {parents.filter(p => p.issueId !== issue?.issueId).map(p => <option key={p.issueId} value={p.issueId}>{p.issueKey} — {p.title}</option>)}
+            </select><small>A Sub-Task requires a parent. To remove it, clear the parent, choose another type, then save.</small></label>
+            {parent && <p className="small"><a href={'#/projects/' + parent.projectId + '/issues/' + parent.issueKey}>View parent {parent.issueKey}</a></p>}
+          </>}
           <label className="field">Status<select value={statusId} onChange={event => setStatusId(Number(event.target.value))}>
             {project.issueStatuses.map(status => <option key={status.statusId} value={status.statusId}>{status.title}</option>)}
           </select></label>

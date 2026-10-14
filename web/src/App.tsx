@@ -85,9 +85,10 @@ export function App() {
               <select aria-label="Filter by status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="">All statuses</option>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select>
             </div>
           </div>
-          <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><th>Key</th><th>Title</th><th>Status</th><th>Assignee</th><th>Labels</th></tr></thead>
+          <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Status</th><th>Assignee</th><th>Labels</th></tr></thead>
             <tbody>{issues.map(issue => <tr key={issue.issueId}><td><a className="issue-key" href={'#/projects/' + project.projectId + '/issues/' + issue.issueKey}>{issue.issueKey}</a></td>
               <td><a className="issue-title" href={'#/projects/' + project.projectId + '/issues/' + issue.issueKey}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
+              <td>{issue.issueType}</td>
               <td><select className={'status-pill ' + (issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
                 const statusId = Number(event.target.value); setChanging(issue.issueId); setError('');
                 try { const updated = await api.updateIssue(issue.issueId, { statusId }); setIssues(previous => previous.map(i => i.issueId === issue.issueId ? updated : i)); setRevision(r => r + 1); }

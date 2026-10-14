@@ -8,7 +8,7 @@ const projectSelect =   "SELECT p.project_id AS \"projectId\", p.title, p.key, "
   "COALESCE((SELECT json_agg(" + statusJson + " ORDER BY s.position) FROM issue_statuses s WHERE s.project_id=p.project_id), '[]') AS \"issueStatuses\" FROM projects p";
 const attachmentColumns = 'attachment_id AS "attachmentId", filename, content_type AS "contentType", octet_length(data) AS size, created_at AS "createdAt"';
 const issueSelect =   "SELECT i.issue_id AS \"issueId\", i.project_id AS \"projectId\", p.key || '-' || i.issue_number AS \"issueKey\", " +
-  "i.title, i.description, i.notes, i.labels, i.assignee, i.created_at AS \"createdAt\", i.updated_at AS \"updatedAt\", " + statusJson + " AS status, " +
+  "i.issue_type AS \"issueType\", i.parent_issue_id AS \"parentIssueId\", i.title, i.description, i.notes, i.labels, i.assignee, i.created_at AS \"createdAt\", i.updated_at AS \"updatedAt\", " + statusJson + " AS status, " +
   "COALESCE((SELECT json_agg(a ORDER BY a.\"attachmentId\") FROM (SELECT " + attachmentColumns + " FROM attachments WHERE issue_id=i.issue_id) a), '[]') AS attachments " +
   "FROM issues i JOIN projects p USING (project_id) JOIN issue_statuses s ON s.status_id=i.status_id";
 function issueWhere(ref: string | number) {
@@ -68,25 +68,51 @@ export class Repository {
     const row = (await db.query<Issue>(issueSelect + ' WHERE ' + issueWhere(ref), [ref])).rows[0];
     if (!row) throw new HttpError(404, 'Issue not found'); return row;
   }
+  async validateParent(db: Db, issueType: string, parentIssueId: number | null, issueId?: number) {
+    if ((issueType === 'Sub-Task') !== (parentIssueId !== null)) throw new HttpError(400, 'Only Sub-Tasks can have a parent, and Sub-Tasks must have a parent');
+    if (parentIssueId === null) return;
+    if (!(await db.query('SELECT 1 FROM issues WHERE issue_id=$1', [parentIssueId])).rowCount) throw new HttpError(400, 'Parent issue not found');
+    if (issueId !== undefined) {
+      const cycle = await db.query(`WITH RECURSIVE ancestors AS (
+        SELECT issue_id, parent_issue_id FROM issues WHERE issue_id=$1
+        UNION
+        SELECT i.issue_id, i.parent_issue_id FROM issues i JOIN ancestors a ON i.issue_id=a.parent_issue_id
+      ) SELECT 1 FROM ancestors WHERE issue_id=$2`, [parentIssueId, issueId]);
+      if (cycle.rowCount) throw new HttpError(400, 'An issue cannot be its own parent or a descendant of itself');
+    }
+  }
+  async lockParents(db: Db) {
+    // Parents can span projects; serialize graph edits so concurrent edits cannot create cycles.
+    await db.query("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.issue_parents'))");
+  }
   async createIssue(projectId: number, input: IssueInput) {
     return transaction(this.pool, async db => {
+      if (input.parentIssueId != null) await this.lockParents(db);
       // Atomic counter also locks the project: numbers are unique under concurrent creation.
       const { rows: [counter] } = await db.query<{ issue_number: number }>('UPDATE projects SET next_issue_number=next_issue_number+1 WHERE project_id=$1 RETURNING next_issue_number-1 AS issue_number', [projectId]);
       if (!counter) throw new HttpError(404, 'Project not found');
       const project = await this.project(projectId, db);
       const statusId = input.statusId ?? project.issueStatuses[0]!.statusId;
       if (!project.issueStatuses.some(s => s.statusId === statusId)) throw new HttpError(400, 'Status does not belong to this project');
-      const { rows: [row] } = await db.query<{ issue_id: number }>('INSERT INTO issues(project_id,issue_number,title,description,notes,status_id,labels,assignee) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING issue_id', [projectId, counter.issue_number, input.title, input.description ?? '', input.notes ?? '', statusId, input.labels ?? [], input.assignee ?? '']);
+      const issueType = input.issueType ?? 'Issue';
+      const parentIssueId = input.parentIssueId ?? null;
+      await this.validateParent(db, issueType, parentIssueId);
+      const { rows: [row] } = await db.query<{ issue_id: number }>('INSERT INTO issues(project_id,issue_number,title,description,notes,status_id,labels,assignee,issue_type,parent_issue_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING issue_id', [projectId, counter.issue_number, input.title, input.description ?? '', input.notes ?? '', statusId, input.labels ?? [], input.assignee ?? '', issueType, parentIssueId]);
       return this.issue(row!.issue_id, db);
     });
   }
   async updateIssue(ref: string | number, input: Partial<IssueInput>) {
     return transaction(this.pool, async db => {
+      if (input.parentIssueId !== undefined) await this.lockParents(db);
+      const initial = await this.issue(ref, db);
+      await db.query('SELECT project_id FROM projects WHERE project_id=$1 FOR UPDATE', [initial.projectId]);
+      // Read again after the lock, so validation uses the latest saved parent and type.
       const current = await this.issue(ref, db);
-      await db.query('SELECT project_id FROM projects WHERE project_id=$1 FOR UPDATE', [current.projectId]);
       const project = await this.project(current.projectId, db);
+      if (current.parentIssueId !== null && input.issueType !== undefined && input.issueType !== current.issueType && input.parentIssueId !== null) throw new HttpError(400, 'Remove the parent before changing a Sub-Task type (send parentIssueId: null with the new type)');
+      await this.validateParent(db, input.issueType ?? current.issueType, input.parentIssueId === undefined ? current.parentIssueId : input.parentIssueId, current.issueId);
       if (input.statusId !== undefined && !project.issueStatuses.some(s => s.statusId === input.statusId)) throw new HttpError(400, 'Status does not belong to this project');
-      const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', labels: 'labels', assignee: 'assignee' };
+      const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', labels: 'labels', assignee: 'assignee', issueType: 'issue_type', parentIssueId: 'parent_issue_id' };
       const values: unknown[] = [current.issueId];
       const sets = Object.entries(input).map(([key, value]) => { values.push(value); return columns[key] + '=$' + values.length; });
       await db.query('UPDATE issues SET ' + [...sets, 'updated_at=now()'].join(',') + ' WHERE issue_id=$1', values);

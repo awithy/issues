@@ -7,12 +7,13 @@ For architecture, data models, API contracts, authentication details, testing st
 ## What’s included
 
 - Projects and issues with keys such as `WEB-123`.
+- Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Searchable issue table, status filters, and inline status changes.
 - Markdown Description and Notes with previews, labels, and free-text assignees.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
 - Multi-user login; every authenticated user has full access.
 - File attachments, up to **25 MB per file**.
-- Permanent deletion of attachments, issues, and projects. Deleting an issue or project also deletes its dependent data.
+- Permanent deletion of attachments, issues, and projects. Deleting an issue or project also deletes its dependent data. Parents cannot be deleted while Sub-Tasks outside the deletion still reference them.
 
 ## Quick start
 
@@ -34,7 +35,7 @@ npm run dev
 - Web: **http://localhost:5173**
 - API: **http://localhost:3031/api**
 
-Log in with one of the usernames/passwords you configured. There are no default credentials. The API creates the initial schema automatically on startup. `npm run db:migrate` can also apply it explicitly.
+Log in with one of the usernames/passwords you configured. There are no default credentials. The API applies schema migrations automatically on startup. `npm run db:migrate` can also apply them explicitly.
 
 If you change `PORT`, restart development and set the CLI’s API URL with `--api` or `ISSUES_API_URL`.
 
@@ -80,6 +81,11 @@ npm run cli -- issue create WEB "Build the landing page" \
   --notes "Discuss the design with the team" \
   --assignee "External designer" --labels frontend,design
 
+npm run cli -- issue types
+npm run cli -- issue create WEB "Build a component" --issue-type Sub-Task --parent WEB-1
+# Clear the parent and change type together, so no parentless Sub-Task is saved.
+npm run cli -- issue update WEB-2 --parent "" --issue-type Task
+
 npm run cli -- issue list WEB
 npm run cli -- issue list WEB --status "in progress" --search landing
 npm run cli -- issue show WEB-1
@@ -98,7 +104,7 @@ npm run cli -- project delete WEB --yes
 npm run cli -- logout
 ```
 
-Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. CLI deletes require `--yes` because they cannot be undone.
+Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. `--parent` accepts an issue key or ID; issue types default to `Issue`. In the web editor, clear the parent before selecting a different type, then save both changes together. CLI deletes require `--yes` because they cannot be undone.
 
 Global options:
 

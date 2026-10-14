@@ -44,23 +44,28 @@ function issueOptions(command: Command) {
     .option('--description-file <path>', 'Read description Markdown from a file')
     .option('--notes <markdown>', 'Notes Markdown')
     .option('--notes-file <path>', 'Read notes Markdown from a file')
+    .option('--issue-type <type>', 'Global issue type: Bug, Issue, Task, Sub-Task, Story')
+    .option('--parent <issue-key-or-id>', 'Parent for a Sub-Task; use an empty string to clear when changing type')
     .option('--status <name-or-id>', 'Any project status (quote names containing spaces)')
     .option('--labels <comma-separated>', 'Replace labels; use an empty string to clear')
     .option('--assignee <text>', 'Free-text assignee; use an empty string to clear');
 }
-type Options = { title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string };
+type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string };
 async function input(options: Options, p: Project): Promise<Partial<IssueInput>> {
   const data: Partial<IssueInput> = {};
   for (const field of ['title', 'description', 'notes', 'assignee'] as const) if (options[field] !== undefined) data[field] = options[field];
   if (options.descriptionFile) data.description = await readFile(options.descriptionFile, 'utf8');
   if (options.notesFile) data.notes = await readFile(options.notesFile, 'utf8');
   if (options.status) data.statusId = statusId(p, options.status);
+  if (options.issueType !== undefined) data.issueType = options.issueType;
+  if (options.parent !== undefined) data.parentIssueId = options.parent === '' ? null : (await (await api()).issue(options.parent)).issueId;
   if (options.labels !== undefined) data.labels = options.labels.split(',').map(s => s.trim()).filter(Boolean);
   return data;
 }
 function showIssue(issue: Issue) {
   if (program.opts().json) { print(issue); return; }
   console.log(issue.issueKey + '  ' + issue.title);
+  console.log('Type: ' + issue.issueType + ' | Parent issue ID: ' + (issue.parentIssueId ?? 'None'));
   console.log('Status: ' + issue.status.title + ' | Assignee: ' + (issue.assignee || 'Unassigned') + ' | Labels: ' + (issue.labels.join(', ') || 'None'));
   console.log('\nDescription\n' + (issue.description || '—') + '\n\nNotes\n' + (issue.notes || '—'));
   if (issue.attachments.length) console.table(issue.attachments.map(a => ({ id: a.attachmentId, filename: a.filename, bytes: a.size })));
@@ -92,11 +97,12 @@ projects.command('statuses <project>').description('Show statuses, or replace th
   });
 projects.command('delete <project>').option('--yes', 'Confirm permanent project, issue, and attachment deletion').action(async (ref, options) => { confirm(options); await (await api()).deleteProject((await project(ref)).projectId); console.log('Project permanently deleted'); });
 const issues = program.command('issue').description('Manage issues');
+issues.command('types').description('List global issue types').action(async () => print(await (await api()).issueTypes()));
 issues.command('list <project>').option('--status <name-or-id>').option('--search <text>')
   .action(async (ref, options) => {
     const p = await project(ref);
     const list = await (await api()).issues(p.projectId, { statusId: options.status ? statusId(p, options.status) : undefined, search: options.search });
-    print(list, list.map(i => ({ key: i.issueKey, title: i.title, status: i.status.title, assignee: i.assignee, labels: i.labels.join(', ') })));
+    print(list, list.map(i => ({ key: i.issueKey, title: i.title, type: i.issueType, parent: i.parentIssueId, status: i.status.title, assignee: i.assignee, labels: i.labels.join(', ') })));
   });
 issueOptions(issues.command('create <project> <title>')).action(async (ref, title, options) => {
   const p = await project(ref); const data = await input(options, p);

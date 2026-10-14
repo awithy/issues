@@ -13,7 +13,7 @@ import { promisify } from 'node:util';
 import { createApp } from '../src/api/app.js';
 import { databaseUrl, migrate } from '../src/api/db.js';
 import { ApiClient, ApiError } from '../src/shared/client.js';
-import { DEFAULT_STATUSES } from '../src/shared/types.js';
+import { DEFAULT_STATUSES, ISSUE_TYPES } from '../src/shared/types.js';
 import type { Project, Issue } from '../src/shared/types.js';
 const exec = promisify(execFile);
 const failure = (status: number) => (error: unknown) => error instanceof ApiError && error.status === status;
@@ -68,6 +68,8 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
   await t.test('create/read/list/update issue with Markdown description and Notes, free-text assignee and labels', async () => {
     issue = await api.createIssue(project.projectId, { title: 'First issue', description: '# Goal\nBuild **something**.', notes: '## Notes\n- Discuss design', labels: ['frontend', 'urgent'], assignee: 'External designer' });
     assert.equal(issue.issueKey, 'WEB-1');
+    assert.equal(issue.issueType, 'Issue');
+    assert.equal(issue.parentIssueId, null);
     assert.equal(issue.status.title, 'backlog');
     assert.equal((await api.issue('web-1')).notes, '## Notes\n- Discuss design');
     assert.equal((await api.issues(project.projectId))[0]!.issueId, issue.issueId);
@@ -81,6 +83,36 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.equal((await api.issues(project.projectId, { search: 'absent' })).length, 0);
     await assert.rejects(api.createIssue(project.projectId, { title: ' ' }), failure(400));
     await assert.rejects(api.issue('WEB-99999'), failure(404));
+  });
+  await t.test('global issue types and parent relationships, including type conversion', async () => {
+    assert.deepEqual(await api.issueTypes(), ISSUE_TYPES);
+    const p = await api.createProject('Issue types', 'TYPES');
+    const parent = await api.createIssue(p.projectId, { title: 'Parent', issueType: 'Story' });
+    let child = await api.createIssue(p.projectId, { title: 'Child', issueType: 'Sub-Task', parentIssueId: parent.issueId });
+    assert.equal((await api.issue(child.issueKey)).parentIssueId, parent.issueId);
+    assert.equal((await api.issues(p.projectId)).find(i => i.issueId === child.issueId)!.issueType, 'Sub-Task');
+    await assert.rejects(api.createIssue(p.projectId, { title: 'Orphan', issueType: 'Sub-Task' }), failure(400));
+    await assert.rejects(api.updateIssue(parent.issueId, { parentIssueId: child.issueId }), failure(400));
+    await assert.rejects(api.updateIssue(child.issueId, { issueType: 'Bug' }), failure(400));
+    await assert.rejects(api.updateIssue(child.issueId, { parentIssueId: null }), failure(400));
+    await assert.rejects(api.updateIssue(parent.issueId, { issueType: 'Sub-Task', parentIssueId: child.issueId }), failure(400));
+    await assert.rejects(api.deleteIssue(parent.issueId), failure(409));
+    assert.equal((await api.issue(child.issueId)).parentIssueId, parent.issueId);
+    child = await api.updateIssue(child.issueId, { parentIssueId: null, issueType: 'Bug' });
+    assert.equal(child.issueType, 'Bug'); assert.equal(child.parentIssueId, null);
+    for (const issueType of ISSUE_TYPES) {
+      child = await api.updateIssue(child.issueId, { issueType, parentIssueId: issueType === 'Sub-Task' ? parent.issueId : null });
+      assert.equal(child.issueType, issueType);
+    }
+    const other = await api.createProject('Other parent project', 'PARENT');
+    const otherParent = await api.createIssue(other.projectId, { title: 'Another parent' });
+    child = await api.updateIssue(child.issueId, { issueType: 'Sub-Task', parentIssueId: otherParent.issueId });
+    assert.equal(child.parentIssueId, otherParent.issueId);
+    await assert.rejects(api.deleteProject(other.projectId), failure(409));
+    child = await api.updateIssue(child.issueId, { parentIssueId: parent.issueId });
+    assert.equal(child.parentIssueId, parent.issueId);
+    await api.deleteProject(other.projectId);
+    await api.deleteProject(p.projectId); // Parent and child are both removed in one cascade.
   });
   await t.test('any-to-any status transitions and project-scoped status validation', async () => {
     for (const name of ['archived', 'design', 'done', 'backlog']) {
@@ -139,6 +171,12 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       const p = JSON.parse(await cli('--json', 'project', 'create', 'CLI', 'CLI project')) as Project;
       const created = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'From CLI', '--notes', '# Original notes')) as Issue;
       assert.equal(created.issueKey, 'CLI-1');
+      assert.deepEqual(JSON.parse(await cli('--json', 'issue', 'types')), ISSUE_TYPES);
+      const child = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'CLI child', '--issue-type', 'Sub-Task', '--parent', 'CLI-1')) as Issue;
+      assert.equal(child.issueType, 'Sub-Task'); assert.equal(child.parentIssueId, created.issueId);
+      const converted = JSON.parse(await cli('--json', 'issue', 'update', child.issueKey, '--parent', '', '--issue-type', 'Task')) as Issue;
+      assert.equal(converted.issueType, 'Task'); assert.equal(converted.parentIssueId, null);
+      await cli('issue', 'delete', child.issueKey, '--yes');
       assert.match(await cli('issue', 'list', 'CLI'), /From CLI/);
       const notes = join(temp, 'notes.md'); await writeFile(notes, '## Updated via file');
       const updated = JSON.parse(await cli('--json', 'issue', 'update', 'CLI-1', '--notes-file', notes, '--status', 'archived', '--assignee', 'Someone external', '--labels', 'cli,test')) as Issue;
