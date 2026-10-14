@@ -10,7 +10,7 @@ For architecture, data models, API contracts, authentication details, testing st
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Undirected issue links, including across projects, visible from either issue.
 - Searchable issue table, status filters, and inline status changes.
-- Markdown Description and Notes with previews, labels, and free-text assignees.
+- Markdown Description and Notes with previews, labels, free-text assignees, and an optional resolution date.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
 - Multi-user login; every authenticated user has full access.
 - File attachments, up to **25 MB per file**.
@@ -117,7 +117,7 @@ issctl project delete WEB --yes
 issctl logout
 ```
 
-For imports, `issctl issue create WEB "Imported issue" --issue-number 123` preserves the key `WEB-123`. The number must be unused in that project; automatic numbering continues above the highest allocated number. Issue numbers cannot be changed after creation.
+`--resolution-date` sets a resolution timestamp on create/update; use an empty string to clear. Timestamps use ISO 8601 with a timezone, e.g. `2024-05-20T17:00:00Z`.
 
 Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. `--parent` accepts an issue key or ID; issue types default to `Issue`. In the web editor, clear the parent before selecting a different type, then save both changes together. Issue links accept keys or IDs for both issues and can be added or removed from either end. Unlinking does not delete either issue. CLI deletes require `--yes` because they cannot be undone.
 

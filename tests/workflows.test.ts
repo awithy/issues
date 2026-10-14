@@ -70,6 +70,7 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.equal(issue.issueKey, 'WEB-1');
     assert.equal(issue.issueType, 'Issue');
     assert.equal(issue.parentIssueId, null);
+    assert.equal(issue.resolutionDate, null);
     assert.equal(issue.status.title, 'backlog');
     assert.equal((await api.issue('web-1')).notes, '## Notes\n- Discuss design');
     assert.equal((await api.issues(project.projectId))[0]!.issueId, issue.issueId);
@@ -219,6 +220,34 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await api.deleteProject(other.projectId);
     await api.deleteProject(p.projectId);
   });
+  await t.test('import original timestamps and create, edit and clear a resolution date', async () => {
+    const p = await api.createProject('Historical issues', 'DATES');
+    const createdAt = '2024-05-20T10:00:52.059-07:00';
+    const updatedAt = '2024-05-22T09:57:37.536-07:00';
+    const resolutionDate = '2024-05-21T12:30:45.123-07:00';
+    const imported = await api.createIssue(p.projectId, { title: 'Historical issue', createdAt, updatedAt, resolutionDate });
+    assert.equal(imported.createdAt, new Date(createdAt).toISOString());
+    assert.equal(imported.updatedAt, new Date(updatedAt).toISOString());
+    assert.equal(imported.resolutionDate, new Date(resolutionDate).toISOString());
+    assert.equal((await api.issues(p.projectId))[0]!.resolutionDate, imported.resolutionDate);
+    const parent = await api.createIssue(p.projectId, { title: 'Created date only', createdAt });
+    assert.equal(parent.createdAt, imported.createdAt);
+    assert.equal(parent.updatedAt, imported.createdAt);
+    await api.linkIssue(imported.issueId, parent.issueId);
+    await api.upload(imported.issueId, new Blob(['Historical attachment']), 'history.txt');
+    assert.equal((await api.issue(imported.issueId)).updatedAt, imported.updatedAt);
+    await request(app).patch('/api/issues/' + imported.issueKey).set('Authorization', 'Bearer ' + api.token).send({ createdAt, updatedAt }).expect(400);
+    await assert.rejects(api.createIssue(p.projectId, { title: 'Invalid timestamp', createdAt: 'yesterday' }), failure(400));
+    const edited = await api.updateIssue(imported.issueId, { notes: 'Migration metadata' });
+    assert.equal(edited.createdAt, imported.createdAt);
+    assert.equal(edited.resolutionDate, imported.resolutionDate);
+    assert.ok(new Date(edited.updatedAt) > new Date(imported.updatedAt));
+    const resolved = await api.updateIssue(imported.issueId, { resolutionDate: updatedAt });
+    assert.equal(resolved.resolutionDate, imported.updatedAt);
+    assert.equal(resolved.status.title, 'backlog'); // Resolution dates do not change status.
+    assert.equal((await api.updateIssue(imported.issueId, { resolutionDate: null })).resolutionDate, null);
+    await api.deleteProject(p.projectId);
+  });
   await t.test('CLI exercises login, projects, issue table, editing Notes/statuses and files via API', async () => {
     const temp = await mkdtemp(join(tmpdir(), 'issues-cli-'));
     try {
@@ -244,8 +273,14 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       assert.deepEqual(JSON.parse(await cli('--json', 'issue', 'links', created.issueKey)), []);
       await cli('issue', 'delete', child.issueKey, '--yes');
       assert.match(await cli('issue', 'list', 'CLI'), /From CLI/);
-      const imported = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'Imported from CLI', '--issue-number', '123')) as Issue;
+      const imported = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'Imported from CLI', '--issue-number', '123', '--created-at', '2024-01-01T12:00:00Z', '--updated-at', '2024-02-01T12:00:00Z', '--resolution-date', '2024-02-01T12:00:00Z')) as Issue;
       assert.equal(imported.issueKey, 'CLI-123');
+      assert.equal(imported.createdAt, '2024-01-01T12:00:00.000Z');
+      assert.equal(imported.updatedAt, '2024-02-01T12:00:00.000Z');
+      assert.equal(imported.resolutionDate, imported.updatedAt);
+      assert.match(await cli('issue', 'show', imported.issueKey), /Resolution date: 2024-02-01T12:00:00.000Z/);
+      const cleared = JSON.parse(await cli('--json', 'issue', 'update', imported.issueKey, '--resolution-date', '')) as Issue;
+      assert.equal(cleared.resolutionDate, null);
       const automatic = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'After import')) as Issue;
       assert.equal(automatic.issueKey, 'CLI-124');
       await assert.rejects(cli('issue', 'create', 'CLI', 'Duplicate number', '--issue-number', '123'), /issue number already exists/);

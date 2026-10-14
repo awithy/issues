@@ -4,6 +4,10 @@ import type { Attachment, Issue, IssueInput, IssueType, Project } from '../../sr
 import { ISSUE_TYPES } from '../../src/shared/types';
 import { ErrorNotice, MarkdownField, message } from './ui';
 import { IssueLinks } from './IssueLinks';
+function localDateTime(value: string) {
+  const date = new Date(value);
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, -1);
+}
 export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted }: {
   api: ApiClient; project: Project; issueKey?: string; onBack: () => void;
   onSaved: (issue: Issue) => void; onDeleted: () => void;
@@ -19,6 +23,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
   const [statusId, setStatusId] = useState(project.issueStatuses[0].statusId);
   const [labels, setLabels] = useState('');
   const [assignee, setAssignee] = useState('');
+  const [resolutionDate, setResolutionDate] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [loading, setLoading] = useState(!!issueKey);
   const [busy, setBusy] = useState(false);
@@ -31,7 +36,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
       if (!active) return;
       setIssue(data); setTitle(data.title); setDescription(data.description); setNotes(data.notes);
       setIssueType(data.issueType); setParentIssueId(data.parentIssueId);
-      setStatusId(data.status.statusId); setLabels(data.labels.join(', ')); setAssignee(data.assignee); setAttachments(data.attachments);
+      setStatusId(data.status.statusId); setLabels(data.labels.join(', ')); setAssignee(data.assignee); setAttachments(data.attachments); setResolutionDate(data.resolutionDate);
     }).catch(error => { if (active) setError(message(error)); }).finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [api, issueKey]);
@@ -52,7 +57,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
   async function save(event: FormEvent) {
     event.preventDefault();
     await run(async () => {
-      const data: IssueInput = { title, issueType, parentIssueId, description, notes, statusId, assignee, labels: labels.split(',').map(label => label.trim()).filter(Boolean) };
+      const data: IssueInput = { title, issueType, parentIssueId, description, notes, statusId, assignee, resolutionDate, labels: labels.split(',').map(label => label.trim()).filter(Boolean) };
       const result = issue ? await api.updateIssue(issue.issueId, data) : await api.createIssue(project.projectId, data);
       setIssue(result); setSaved(true); onSaved(result);
     });
@@ -89,6 +94,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
           </select></label>
           <label className="field">Assignee<input value={assignee} onChange={event => setAssignee(event.target.value)} placeholder="Name or username" maxLength={300} /></label>
           <label className="field">Labels<input aria-label="Labels" value={labels} onChange={event => setLabels(event.target.value)} placeholder="frontend, urgent" /><small>Separate labels with commas.</small></label>
+          <label className="field">Resolution date<input aria-label="Resolution date" type="datetime-local" step="0.001" value={resolutionDate ? localDateTime(resolutionDate) : ''} onChange={event => setResolutionDate(event.target.value ? new Date(event.target.value).toISOString() : null)} /><small>Local time. Independent of status; clear to remove.</small></label>
           {issue && <p className="muted small">Created {new Date(issue.createdAt).toLocaleDateString()}<br />Updated {new Date(issue.updatedAt).toLocaleDateString()}</p>}
           <p className="muted small">Any status can move to any other status.</p>
         </aside></div>

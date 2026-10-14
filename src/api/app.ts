@@ -17,14 +17,18 @@ import { ISSUE_TYPES } from '../shared/types.js';
 
 const id = z.coerce.number().int().positive().max(2147483647);
 const title = z.string().trim().min(1).max(300);
+const timestamp = z.iso.datetime({ offset: true });
 const issueInput = z.object({
   title, issueType: z.enum(ISSUE_TYPES).optional(), parentIssueId: id.nullable().optional(),
   description: z.string().max(500000).optional(), notes: z.string().max(500000).optional(),
   statusId: id.optional(), labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
-  assignee: z.string().trim().max(300).optional(),
+  assignee: z.string().trim().max(300).optional(), resolutionDate: timestamp.nullable().optional(),
 }).strict();
 // Leave room for the next-number counter in PostgreSQL's integer column.
-const issueCreateInput = issueInput.extend({ issueNumber: z.number().int().positive().max(2147483646).optional() });
+const issueCreateInput = issueInput.extend({
+  issueNumber: z.number().int().positive().max(2147483646).optional(),
+  createdAt: timestamp.optional(), updatedAt: timestamp.optional(),
+});
 const nonempty = (value: object) => Object.keys(value).length > 0;
 const projectInput = z.object({ title, key: z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9]{0,11}$/, 'Use 1–12 letters or numbers, starting with a letter') }).strict();
 const statuses = z.array(z.object({ statusId: id.optional(), title: z.string().trim().min(1).max(100), isComplete: z.boolean() }).strict()).min(1).max(30)

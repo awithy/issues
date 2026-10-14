@@ -132,7 +132,7 @@ The first status is the default for new issues. Every project must retain at lea
 | --- | --- |
 | `issueId` | Integer identity primary key, independent of the human-readable key. |
 | `projectId` | Owning project; immutable in v1. |
-| `issueNumber` | Per-project number, unique together with `projectId`; optionally supplied on creation for imports, otherwise allocated automatically. Immutable after creation. |
+| `issueNumber` | Per-project number, unique together with `projectId`; optionally supplied on creation, otherwise allocated automatically. Immutable after creation. |
 | `issueKey` | Computed from project key and issue number, e.g. `WEB-123`; not separately stored. |
 | `title` | Required text; up to 300 characters. |
 | `issueType` | `IssueType` is a string; stored as `issue_type`. Global allowed values: Bug, Issue, Task, Sub-Task, Story. Defaults to Issue. |
@@ -144,7 +144,8 @@ The first status is the default for new issues. Every project must retain at lea
 | `assignee` | Free text; defaults to an empty string. No user foreign key. |
 | `attachments` | Attachment metadata loaded from `attachments`; blobs are not embedded in issue JSON. |
 | `linkedIssues` | Summaries of directly linked issues: `issueId`, `projectId`, `issueKey`, and current `title`. Defaults to `[]`. |
-| `createdAt`, `updatedAt` | Database timestamps; issue patches advance `updatedAt`. |
+| `createdAt`, `updatedAt` | Timestamp fields, optionally supplied on creation. Otherwise use database time; issue patches advance `updatedAt`. Neither can be overridden by a patch. |
+| `resolutionDate` | Nullable resolution timestamp, stored as `resolution_date`. Defaults to null; editable independently of status. |
 
 An assignee can be a configured username, someone external to the tracker, or a team name. Labels are simple strings, not a managed taxonomy. Updating labels replaces the array. Description and Notes are plain Markdown source, not stored HTML.
 
@@ -209,9 +210,15 @@ RETURNING next_issue_number - 1 AS issue_number;
 
 The update locks the project row. Concurrent creations within a project serialize on this row and receive distinct numbers. The issue is then inserted with the selected project status. If creation fails, the transaction rolls back, including the counter update.
 
-For imports, creation may instead supply an explicit `issueNumber`. In the same transaction, the project counter is updated to `GREATEST(next_issue_number, issueNumber + 1)` and the issue is inserted with that number. This takes the same project-row lock as automatic numbering, preserves gaps, and allows out-of-order imports without moving the counter backwards. An occupied number returns `409` without changing the existing issue or counter. Explicit numbers must be integers from 1 to 2,147,483,646, leaving room for the next-number counter in its PostgreSQL integer column. Internal `issueId` values remain database-generated and are unrelated to imported numbers.
+Creation may instead supply an explicit `issueNumber`. In the same transaction, the project counter is updated to `GREATEST(next_issue_number, issueNumber + 1)` and the issue is inserted with that number. This takes the same project-row lock as automatic numbering and never moves the counter backwards. An occupied number returns `409` without changing the existing issue or counter. Explicit numbers must be integers from 1 to 2,147,483,646, leaving room for the next-number counter in its PostgreSQL integer column. Internal `issueId` values remain database-generated and independent of per-project numbers.
 
 Deleting a committed issue does not decrement the counter, so automatic allocation never reuses its number within that surviving project. Explicit creation can fill any currently unoccupied number, including a previously deleted one; there is no deleted-number registry. API issue routes accept either an internal issue ID or a key such as `WEB-123`.
+
+### Issue timestamps and resolution date
+
+Creation accepts optional `createdAt` and `updatedAt` timestamps. If only `createdAt` is supplied, `updatedAt` defaults to that same timestamp; otherwise omitted timestamps use database time. API inputs use ISO 8601 with a timezone (`Z` or an offset such as `-07:00`), preserving the instant at millisecond precision. These fields are create-only: subsequent issue edits advance `updatedAt` to the time of the edit. Link and attachment operations do not change these issue timestamps.
+
+`resolutionDate` accepts a timestamp or null on creation and patch. Omission on creation defaults to null; omission on patch preserves the value. There is no automatic coupling to status: moving to a complete status does not set it, reopening does not clear it, and a date can coexist with an incomplete status.
 
 ### Status configuration
 
@@ -312,6 +319,9 @@ Issue creation accepts:
 {
   title: string;
   issueNumber?: number; // create-only; omit for automatic numbering
+  createdAt?: string; // create-only ISO 8601 timestamp with timezone
+  updatedAt?: string; // create-only; defaults to createdAt if supplied, otherwise now
+  resolutionDate?: string | null; // ISO 8601 timestamp with timezone; defaults to null
   issueType?: string; // Bug, Issue, Task, Sub-Task, Story; defaults to Issue
   parentIssueId?: number | null; // non-null exactly when issueType is Sub-Task
   description?: string;
@@ -322,9 +332,9 @@ Issue creation accepts:
 }
 ```
 
-Missing optional fields receive their defaults. `issueNumber` is accepted only on creation; patches cannot renumber an issue. Patches accept a non-empty subset of editable fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
+Missing optional fields receive their defaults. `issueNumber`, `createdAt`, and `updatedAt` are accepted only on creation. Patches cannot renumber an issue or override its creation/update timestamps; `resolutionDate: null` clears the resolution timestamp. Patches accept a non-empty subset of editable fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
 
-Issue responses include `issueType`, nullable `parentIssueId`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
+Issue responses include `issueType`, nullable `parentIssueId` and `resolutionDate`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
 
 Downloads use `Content-Disposition: attachment`, `application/octet-stream`, and `Cache-Control: no-store`. Uploaded MIME metadata is retained but does not cause files to be served as executable inline content.
 
@@ -356,7 +366,7 @@ Its main surfaces are:
 - **Login:** username/password form; current session checked on initial load.
 - **Project sidebar:** project selection and creation.
 - **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts.
-- **Issue detail editor:** explicit save for title, type, parent, Description, Notes, status, labels, and assignee. Parent selection includes issues across projects.
+- **Issue detail editor:** explicit save for title, type, parent, Description, Notes, status, labels, assignee, and resolution date (shown/edited in local time, including milliseconds). Parent selection includes issues across projects.
 - **Markdown fields:** independent Write/Preview controls using `react-markdown` and `remark-gfm`; raw HTML is not rendered.
 - **Linked issues section:** enter an issue key or ID to link it, navigate to linked issues, or unlink from either endpoint. Links persist immediately, independently of unsaved editor fields, and are available after issue creation.
 - **Attachment section:** files can be attached after issue creation; upload/delete operations persist separately from unsaved text edits.
@@ -368,7 +378,7 @@ Search/filter changes request fresh API results after a short delay. Mutations u
 
 The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
 
-Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` preserves a per-project number for imports; this option is not available on update and is not exposed in the web editor. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
+Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` sets an explicit per-project number; this option is not available on update and is not exposed in the web editor. `--created-at` and `--updated-at` also apply only to creation. `--resolution-date` applies to create/update and accepts an ISO 8601 timestamp with timezone or an empty string to clear. `issue show` includes creation, update, and resolution timestamps. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
 `issue link <issue> <other-issue>` adds an undirected link; `issue links <issue>` lists linked summaries, and `issue unlink <issue> <other-issue>` removes a link from either end without confirmation or issue deletion. `issue show` also includes linked issues. Both endpoints accept an issue key or ID.
 
@@ -408,7 +418,7 @@ Runtime configuration is read from environment variables, with `.env` support:
 
 Startup validates users, connects to Postgres, applies schema migrations, and starts serving requests. SIGINT/SIGTERM initiate HTTP server shutdown and then close the database pool. Run the server from the repository root because schema, default user-config, and built web paths are relative to that directory.
 
-Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues.
+Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues. `004.sql` adds nullable resolution dates, leaving existing timestamps and other issue data unchanged.
 
 For production:
 
@@ -442,7 +452,8 @@ Primary coverage includes:
 - Any-to-any transitions and editable status configuration.
 - Exact binary attachment round trips and permanent deletion.
 - Concurrent issue creation with unique numbering and no automatic reuse after deletion.
-- Explicit issue numbers through the API and CLI, out-of-order and concurrent imports, counter advancement, duplicate rejection, and prevention of renumbering.
+- Explicit issue numbers through the API and CLI, concurrent creation, counter advancement, duplicate rejection, and prevention of renumbering.
+- Supplied creation/update timestamps, unchanged timestamps after link/file operations, normal update timestamps on edits, and resolution-date creation, editing and clearing through API/CLI/web.
 - Project/issue cascading deletes.
 - CLI login, output, edits, file operations, status configuration, and deletes.
 

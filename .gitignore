@@ -5,4 +5,5 @@ config/users.json
 .playwright-cli/
 playwright-report/
 test-results/
+/.scratchpad/
 *.log

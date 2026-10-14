@@ -8,7 +8,7 @@ const projectSelect =   "SELECT p.project_id AS \"projectId\", p.title, p.key, "
   "COALESCE((SELECT json_agg(" + statusJson + " ORDER BY s.position) FROM issue_statuses s WHERE s.project_id=p.project_id), '[]') AS \"issueStatuses\" FROM projects p";
 const attachmentColumns = 'attachment_id AS "attachmentId", filename, content_type AS "contentType", octet_length(data) AS size, created_at AS "createdAt"';
 const issueSelect =   "SELECT i.issue_id AS \"issueId\", i.project_id AS \"projectId\", p.key || '-' || i.issue_number AS \"issueKey\", " +
-  "i.issue_type AS \"issueType\", i.parent_issue_id AS \"parentIssueId\", i.title, i.description, i.notes, i.labels, i.assignee, i.created_at AS \"createdAt\", i.updated_at AS \"updatedAt\", " + statusJson + " AS status, " +
+  "i.issue_type AS \"issueType\", i.parent_issue_id AS \"parentIssueId\", i.title, i.description, i.notes, i.labels, i.assignee, i.created_at AS \"createdAt\", i.updated_at AS \"updatedAt\", i.resolution_date AS \"resolutionDate\", " + statusJson + " AS status, " +
   "COALESCE((SELECT json_agg(a ORDER BY a.\"attachmentId\") FROM (SELECT " + attachmentColumns + " FROM attachments WHERE issue_id=i.issue_id) a), '[]') AS attachments, " +
   "COALESCE((SELECT json_agg(json_build_object('issueId', linked.issue_id, 'projectId', linked.project_id, 'issueKey', lp.key || '-' || linked.issue_number, 'title', linked.title) ORDER BY lp.key, linked.issue_number) " +
   "FROM issue_links l JOIN issues linked ON linked.issue_id=CASE WHEN l.issue_id_a=i.issue_id THEN l.issue_id_b ELSE l.issue_id_a END " +
@@ -105,7 +105,7 @@ export class Repository {
       const issueType = input.issueType ?? 'Issue';
       const parentIssueId = input.parentIssueId ?? null;
       await this.validateParent(db, issueType, parentIssueId);
-      const { rows: [row] } = await db.query<{ issue_id: number }>('INSERT INTO issues(project_id,issue_number,title,description,notes,status_id,labels,assignee,issue_type,parent_issue_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING issue_id', [projectId, counter.issue_number, input.title, input.description ?? '', input.notes ?? '', statusId, input.labels ?? [], input.assignee ?? '', issueType, parentIssueId]);
+      const { rows: [row] } = await db.query<{ issue_id: number }>('INSERT INTO issues(project_id,issue_number,title,description,notes,status_id,labels,assignee,issue_type,parent_issue_id,created_at,updated_at,resolution_date) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,COALESCE($11::timestamptz,now()),COALESCE($12::timestamptz,$11::timestamptz,now()),$13) RETURNING issue_id', [projectId, counter.issue_number, input.title, input.description ?? '', input.notes ?? '', statusId, input.labels ?? [], input.assignee ?? '', issueType, parentIssueId, input.createdAt ?? null, input.updatedAt ?? null, input.resolutionDate ?? null]);
       return this.issue(row!.issue_id, db);
     });
   }
@@ -120,7 +120,7 @@ export class Repository {
       if (current.parentIssueId !== null && input.issueType !== undefined && input.issueType !== current.issueType && input.parentIssueId !== null) throw new HttpError(400, 'Remove the parent before changing a Sub-Task type (send parentIssueId: null with the new type)');
       await this.validateParent(db, input.issueType ?? current.issueType, input.parentIssueId === undefined ? current.parentIssueId : input.parentIssueId, current.issueId);
       if (input.statusId !== undefined && !project.issueStatuses.some(s => s.statusId === input.statusId)) throw new HttpError(400, 'Status does not belong to this project');
-      const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', labels: 'labels', assignee: 'assignee', issueType: 'issue_type', parentIssueId: 'parent_issue_id' };
+      const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', labels: 'labels', assignee: 'assignee', issueType: 'issue_type', parentIssueId: 'parent_issue_id', resolutionDate: 'resolution_date' };
       const values: unknown[] = [current.issueId];
       const sets = Object.entries(input).map(([key, value]) => { values.push(value); return columns[key] + '=$' + values.length; });
       await db.query('UPDATE issues SET ' + [...sets, 'updated_at=now()'].join(',') + ' WHERE issue_id=$1', values);

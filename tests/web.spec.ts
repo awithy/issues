@@ -67,6 +67,7 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await page.getByRole('textbox', { name: 'Notes', exact: true }).fill('## Design notes\n- Make it accessible');
   await page.getByRole('textbox', { name: 'Assignee', exact: true }).fill('Design team');
   await page.getByRole('textbox', { name: 'Labels', exact: true }).fill('frontend, design');
+  await page.getByLabel('Resolution date', { exact: true }).fill('2025-06-01T12:30:45.123');
   await page.getByRole('button', { name: 'Create issue', exact: true }).click();
   await expect(page).toHaveURL(/WEB-1$/);
   await page.getByRole('button', { name: 'Preview Description', exact: true }).click();
@@ -80,6 +81,12 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await expect(page.getByRole('status')).toHaveText('Changes saved');
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue('Updated **notes**');
+  await expect(page.getByLabel('Resolution date', { exact: true })).toHaveValue('2025-06-01T12:30:45.123');
+  await page.getByLabel('Resolution date', { exact: true }).fill('');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Changes saved');
+  await page.reload();
+  await expect(page.getByLabel('Resolution date', { exact: true })).toHaveValue('');
   const data = Buffer.from('A file attached through the browser.');
   await page.getByLabel('Attach files', { exact: true }).setInputFiles({ name: 'hello.txt', mimeType: 'text/plain', buffer: data });
   await expect(page.getByRole('link', { name: 'hello.txt', exact: true })).toBeVisible();

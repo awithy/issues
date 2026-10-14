@@ -8,10 +8,10 @@ export interface Issue {
   issueId: number; projectId: number; issueKey: string; title: string;
   issueType: IssueType; parentIssueId: number | null;
   description: string; notes: string; status: IssueStatus; labels: string[];
-  assignee: string; attachments: Attachment[]; linkedIssues: LinkedIssue[]; createdAt: string; updatedAt: string;
+  assignee: string; attachments: Attachment[]; linkedIssues: LinkedIssue[]; createdAt: string; updatedAt: string; resolutionDate: string | null;
 }
-export interface IssueInput { title: string; issueType?: IssueType; parentIssueId?: number | null; description?: string; notes?: string; statusId?: number; labels?: string[]; assignee?: string }
-export interface CreateIssueInput extends IssueInput { issueNumber?: number }
+export interface IssueInput { title: string; issueType?: IssueType; parentIssueId?: number | null; description?: string; notes?: string; statusId?: number; labels?: string[]; assignee?: string; resolutionDate?: string | null }
+export interface CreateIssueInput extends IssueInput { issueNumber?: number; createdAt?: string; updatedAt?: string }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }
 export interface IssueFilters { statusId?: number; search?: string }
 export const DEFAULT_STATUSES: StatusInput[] = [

@@ -48,9 +48,10 @@ function issueOptions(command: Command) {
     .option('--parent <issue-key-or-id>', 'Parent for a Sub-Task; use an empty string to clear when changing type')
     .option('--status <name-or-id>', 'Any project status (quote names containing spaces)')
     .option('--labels <comma-separated>', 'Replace labels; use an empty string to clear')
-    .option('--assignee <text>', 'Free-text assignee; use an empty string to clear');
+    .option('--assignee <text>', 'Free-text assignee; use an empty string to clear')
+    .option('--resolution-date <timestamp>', 'Resolution timestamp (ISO 8601 with timezone); use an empty string to clear');
 }
-type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string };
+type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string; resolutionDate?: string };
 async function input(options: Options, p: Project): Promise<Partial<IssueInput>> {
   const data: Partial<IssueInput> = {};
   for (const field of ['title', 'description', 'notes', 'assignee'] as const) if (options[field] !== undefined) data[field] = options[field];
@@ -59,6 +60,7 @@ async function input(options: Options, p: Project): Promise<Partial<IssueInput>>
   if (options.status) data.statusId = statusId(p, options.status);
   if (options.issueType !== undefined) data.issueType = options.issueType;
   if (options.parent !== undefined) data.parentIssueId = options.parent === '' ? null : (await (await api()).issue(options.parent)).issueId;
+  if (options.resolutionDate !== undefined) data.resolutionDate = options.resolutionDate === '' ? null : options.resolutionDate;
   if (options.labels !== undefined) data.labels = options.labels.split(',').map(s => s.trim()).filter(Boolean);
   return data;
 }
@@ -67,6 +69,7 @@ function showIssue(issue: Issue) {
   console.log(issue.issueKey + '  ' + issue.title);
   console.log('Type: ' + issue.issueType + ' | Parent issue ID: ' + (issue.parentIssueId ?? 'None'));
   console.log('Status: ' + issue.status.title + ' | Assignee: ' + (issue.assignee || 'Unassigned') + ' | Labels: ' + (issue.labels.join(', ') || 'None'));
+  console.log('Created: ' + issue.createdAt + ' | Updated: ' + issue.updatedAt + ' | Resolution date: ' + (issue.resolutionDate || 'None'));
   console.log('\nDescription\n' + (issue.description || '—') + '\n\nNotes\n' + (issue.notes || '—'));
   if (issue.linkedIssues.length) { console.log('\nLinked issues'); console.table(issue.linkedIssues.map(i => ({ key: i.issueKey, title: i.title }))); }
   if (issue.attachments.length) console.table(issue.attachments.map(a => ({ id: a.attachmentId, filename: a.filename, bytes: a.size })));
@@ -105,9 +108,12 @@ issues.command('list <project>').option('--status <name-or-id>').option('--searc
     const list = await (await api()).issues(p.projectId, { statusId: options.status ? statusId(p, options.status) : undefined, search: options.search });
     print(list, list.map(i => ({ key: i.issueKey, title: i.title, type: i.issueType, parent: i.parentIssueId, status: i.status.title, assignee: i.assignee, labels: i.labels.join(', ') })));
   });
-issueOptions(issues.command('create <project> <title>').option('--issue-number <number>', 'Set a per-project issue number on creation (for imports)')).action(async (ref, title, options) => {
+issueOptions(issues.command('create <project> <title>')
+  .option('--issue-number <number>', 'Set a per-project issue number on creation (for imports)')
+  .option('--created-at <timestamp>', 'Original creation timestamp (ISO 8601 with timezone; create-only)')
+  .option('--updated-at <timestamp>', 'Original update timestamp (ISO 8601 with timezone; create-only)')).action(async (ref, title, options) => {
   const p = await project(ref); const data = await input(options, p);
-  showIssue(await (await api()).createIssue(p.projectId, { ...data, title, issueNumber: options.issueNumber === undefined ? undefined : Number(options.issueNumber) }));
+  showIssue(await (await api()).createIssue(p.projectId, { ...data, title, issueNumber: options.issueNumber === undefined ? undefined : Number(options.issueNumber), createdAt: options.createdAt, updatedAt: options.updatedAt }));
 });
 issues.command('show <issue>').action(async ref => showIssue(await (await api()).issue(ref)));
 issueOptions(issues.command('update <issue>').option('--title <title>')).action(async (ref, options) => {
