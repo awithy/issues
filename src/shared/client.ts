@@ -36,9 +36,9 @@ export class ApiClient {
   deleteIssue(id: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id), { method: 'DELETE' }); }
   linkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'PUT' }); }
   unlinkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'DELETE' }); }
-  upload(id: number | string, file: Blob, filename: string) {
+  upload(id: number | string, file: Blob, filename: string, idempotencyKey?: string) {
     const form = new FormData(); form.set('file', file, filename);
-    return this.request<Attachment>('/issues/' + encodeURIComponent(id) + '/attachments', { method: 'POST', body: form });
+    return this.request<Attachment>('/issues/' + encodeURIComponent(id) + '/attachments', { method: 'POST', body: form, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined });
   }
   attachmentUrl(id: number) { return this.baseUrl + '/attachments/' + id; }
   async download(id: number): Promise<Blob> {

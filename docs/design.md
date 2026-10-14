@@ -172,10 +172,11 @@ Issue responses include `linkedIssues`, sorted by project key then issue number.
 | `data` | Binary content in PostgreSQL `bytea`. |
 | `size` | Computed from `octet_length(data)`, returned in bytes. |
 | `createdAt` | Upload timestamp. |
+| `uploadKey` | Optional per-issue retry identity, stored internally and not returned in metadata. |
 
 There is no server-side attachment directory or object store. Uploads are buffered in memory before insertion; downloads read the stored blob. Each file is limited to 25 MiB (`25 × 1024 × 1024` bytes). Uploads are one file per API request; the web app handles multi-file selection by sending sequential requests.
 
-This keeps backup, ownership, and deletion in one store, at the cost of larger database backups and bounded per-request memory use. There is no virus scanning, content inspection, or deduplication in v1. Attachment changes do not independently update the issue’s `updatedAt` timestamp.
+This keeps backup, ownership, and deletion in one store, at the cost of larger database backups and bounded per-request memory use. There is no virus scanning, content inspection, or automatic content-based deduplication in v1. Uploads may supply an `Idempotency-Key` header (1–200 letters, numbers, colons, underscores or hyphens). Repeating the key on the same issue returns the original attachment if filename, MIME metadata and bytes match, or `409` for different content. A transaction-scoped advisory lock serializes concurrent retries, and a partial unique index enforces per-issue key uniqueness. Keys are retained with the attachment and deleted with it; ordinary uploads without a key still create distinct files. Attachment changes do not independently update the issue’s `updatedAt` timestamp.
 
 ### Session
 
@@ -418,7 +419,7 @@ Runtime configuration is read from environment variables, with `.env` support:
 
 Startup validates users, connects to Postgres, applies schema migrations, and starts serving requests. SIGINT/SIGTERM initiate HTTP server shutdown and then close the database pool. Run the server from the repository root because schema, default user-config, and built web paths are relative to that directory.
 
-Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues. `004.sql` adds nullable resolution dates, leaving existing timestamps and other issue data unchanged.
+Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues. `004.sql` adds nullable resolution dates, leaving existing timestamps and other issue data unchanged. `005.sql` adds optional attachment upload keys and their per-issue partial unique index; existing attachments have no key.
 
 For production:
 

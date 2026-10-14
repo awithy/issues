@@ -99,7 +99,8 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024, files: 1, fields: 0 } });
   router.post('/issues/:ref/attachments', upload.single('file'), async (req, res) => {
     if (!req.file) throw new HttpError(400, 'Attach a file using the file field');
-    res.status(201).json(await repo.upload(issueRef(req.params.ref), req.file));
+    const uploadKey = z.string().min(1).max(200).regex(/^[A-Za-z0-9:_-]+$/).optional().parse(req.get('Idempotency-Key'));
+    res.status(201).json(await repo.upload(issueRef(req.params.ref), req.file, uploadKey));
   });
   router.get('/attachments/:id', async (req, res) => {
     const attachment = await repo.attachment(id.parse(req.params.id));

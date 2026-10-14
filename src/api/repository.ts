@@ -145,9 +145,20 @@ export class Repository {
     const pair = await this.linkPair(ref, other);
     await this.pool.query('DELETE FROM issue_links WHERE issue_id_a=$1 AND issue_id_b=$2', pair);
   }
-  async upload(ref: string | number, file: { originalname: string; mimetype: string; buffer: Buffer }) {
-    const issue = await this.issue(ref);
-    return (await this.pool.query<Attachment>('INSERT INTO attachments(issue_id,filename,content_type,data) VALUES ($1,$2,$3,$4) RETURNING ' + attachmentColumns, [issue.issueId, file.originalname, file.mimetype, file.buffer])).rows[0]!;
+  async upload(ref: string | number, file: { originalname: string; mimetype: string; buffer: Buffer }, uploadKey?: string) {
+    return transaction(this.pool, async db => {
+      const issue = await this.issue(ref, db);
+      if (uploadKey) {
+        await db.query('SELECT pg_advisory_xact_lock($1, hashtext($2))', [issue.issueId, uploadKey]);
+        const previous = (await db.query<Attachment & { data: Buffer }>('SELECT ' + attachmentColumns + ', data FROM attachments WHERE issue_id=$1 AND upload_key=$2', [issue.issueId, uploadKey])).rows[0];
+        if (previous) {
+          if (previous.filename !== file.originalname || previous.contentType !== file.mimetype || !previous.data.equals(file.buffer)) throw new HttpError(409, 'Upload key already used for different content');
+          const { data: _data, ...attachment } = previous;
+          return attachment;
+        }
+      }
+      return (await db.query<Attachment>('INSERT INTO attachments(issue_id,filename,content_type,data,upload_key) VALUES ($1,$2,$3,$4,$5) RETURNING ' + attachmentColumns, [issue.issueId, file.originalname, file.mimetype, file.buffer, uploadKey ?? null])).rows[0]!;
+    });
   }
   async attachment(id: number) {
     const row = (await this.pool.query<Attachment & { data: Buffer }>('SELECT ' + attachmentColumns + ', data FROM attachments WHERE attachment_id=$1', [id])).rows[0];

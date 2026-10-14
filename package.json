@@ -14,7 +14,8 @@
     "test:web": "npm run build && playwright test",
     "cli": "tsx src/cli/index.ts",
     "user:add": "tsx scripts/add-user.ts",
-    "db:migrate": "tsx src/api/migrate.ts"
+    "db:migrate": "tsx src/api/migrate.ts",
+    "jira:migrate": "tsx scripts/jira-migrate.ts"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
