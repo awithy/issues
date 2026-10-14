@@ -32,6 +32,18 @@ test.afterAll(async () => {
   if (admin) { await admin.query('DROP SCHEMA IF EXISTS ' + schema + ' CASCADE'); await admin.end(); }
 });
 
+test('dark theme is used regardless of system color preference', async ({ page }) => {
+  for (const colorScheme of ['light', 'dark'] as const) {
+    await page.emulateMedia({ colorScheme });
+    await page.goto(url);
+    await expect(page.getByRole('heading', { name: 'Welcome back.' })).toBeVisible();
+    await expect(page.locator('html')).toHaveCSS('color-scheme', 'dark');
+    await expect(page.locator('html')).toHaveCSS('background-color', 'rgb(16, 20, 29)');
+    await expect(page.locator('.login-card')).toHaveCSS('background-color', 'rgb(23, 28, 39)');
+    await expect(page.getByRole('textbox', { name: 'Username', exact: true })).toHaveCSS('background-color', 'rgb(19, 24, 35)');
+  }
+});
+
 test('web happy path: projects, Markdown fields, issue table, statuses, files, permanent deletes', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -41,6 +53,7 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await page.getByRole('textbox', { name: 'Password', exact: true }).fill('alice-password');
   await page.getByRole('button', { name: 'Log in →' }).click();
   await page.getByRole('button', { name: '+ Create project', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCSS('background-color', 'rgb(23, 28, 39)');
   await page.getByRole('textbox', { name: 'Project title', exact: true }).fill('Website');
   await page.getByRole('textbox', { name: 'Project key' }).fill('WEB');
   await page.getByRole('dialog').getByRole('button', { name: 'Create project', exact: true }).click();
@@ -55,6 +68,7 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await expect(page).toHaveURL(/WEB-1$/);
   await page.getByRole('button', { name: 'Preview Description', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Goal', exact: true })).toBeVisible();
+  await expect(page.locator('.markdown')).toHaveCSS('background-color', 'rgb(23, 28, 39)');
   await page.getByRole('button', { name: 'Preview Notes', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Design notes', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Write Notes', exact: true }).click();
@@ -77,6 +91,7 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await expect(page.getByRole('link', { name: 'hello.txt', exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Back to issues' }).click();
   await expect(page.getByRole('link', { name: 'Build a landing page', exact: true })).toBeVisible();
+  await expect(page.locator('.table-wrap')).toHaveCSS('background-color', 'rgb(23, 28, 39)');
   await page.getByLabel('Status of WEB-1').selectOption({ label: 'archived' });
   await expect(page.getByLabel('Status of WEB-1')).toBeEnabled();
   await expect(page.getByLabel('Status of WEB-1').locator('option:checked')).toHaveText('archived');
