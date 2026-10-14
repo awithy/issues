@@ -10,7 +10,7 @@ import { readPassword } from './password.js';
 
 const sessionFile = process.env.ISSUES_CONFIG || resolve(homedir(), '.config/minimal-issues/session.json');
 type Session = { apiUrl: string; token: string; username: string };
-const program = new Command().name('issues').description('A small issue tracker. All operations use the API.')
+const program = new Command().name('issctl').description('A small issue tracker. All operations use the API.')
   .option('--api <url>', 'API base URL, including /api', process.env.ISSUES_API_URL)
   .option('--json', 'Print machine-readable JSON');
 async function session(): Promise<Session | undefined> {

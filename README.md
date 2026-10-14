@@ -66,47 +66,55 @@ Changing a password does not revoke existing sessions. To block a user’s acces
 
 ## CLI
 
-Run from this directory with `npm run cli -- ...`. The production build is also usable with `node dist/cli/index.js ...`.
+Build and install the `issctl` command on your PATH (requires your npm global bin directory on PATH):
 
 ```sh
-npm run cli -- login alice
-npm run cli -- whoami
+npm run build
+npm link
+issctl --help
+```
 
-npm run cli -- project create WEB "Website"
-npm run cli -- project list
-npm run cli -- project show WEB
-npm run cli -- project update WEB --title "Web platform"
+Run `issctl` from any directory. Rebuild after changing CLI source. You can still run the source directly from this directory with `npm run cli -- ...`.
 
-npm run cli -- issue create WEB "Build the landing page" \
+```sh
+issctl login alice
+issctl whoami
+
+issctl project create WEB "Website"
+issctl project list
+issctl project show WEB
+issctl project update WEB --title "Web platform"
+
+issctl issue create WEB "Build the landing page" \
   --description "A **simple** homepage" \
   --notes "Discuss the design with the team" \
   --assignee "External designer" --labels frontend,design
 
-npm run cli -- issue types
-npm run cli -- issue create WEB "Build a component" --issue-type Sub-Task --parent WEB-1
+issctl issue types
+issctl issue create WEB "Build a component" --issue-type Sub-Task --parent WEB-1
 # Clear the parent and change type together, so no parentless Sub-Task is saved.
-npm run cli -- issue update WEB-2 --parent "" --issue-type Task
+issctl issue update WEB-2 --parent "" --issue-type Task
 
-npm run cli -- issue list WEB
-npm run cli -- issue list WEB --status "in progress" --search landing
-npm run cli -- issue show WEB-1
-npm run cli -- issue update WEB-1 --status archived
-npm run cli -- issue update WEB-1 --status backlog --notes-file ./notes.md
-npm run cli -- issue update WEB-1 --description-file ./description.md
-npm run cli -- issue update WEB-1 --labels "" --assignee ""
+issctl issue list WEB
+issctl issue list WEB --status "in progress" --search landing
+issctl issue show WEB-1
+issctl issue update WEB-1 --status archived
+issctl issue update WEB-1 --status backlog --notes-file ./notes.md
+issctl issue update WEB-1 --description-file ./description.md
+issctl issue update WEB-1 --labels "" --assignee ""
 
-npm run cli -- issue link WEB-1 WEB-2
-npm run cli -- issue links WEB-1
-npm run cli -- issue unlink WEB-2 WEB-1
+issctl issue link WEB-1 WEB-2
+issctl issue links WEB-1
+issctl issue unlink WEB-2 WEB-1
 
-npm run cli -- attachment upload WEB-1 ./design.png
-npm run cli -- attachment list WEB-1
-npm run cli -- attachment download 1 ./downloaded-design.png
-npm run cli -- attachment delete 1 --yes
+issctl attachment upload WEB-1 ./design.png
+issctl attachment list WEB-1
+issctl attachment download 1 ./downloaded-design.png
+issctl attachment delete 1 --yes
 
-npm run cli -- issue delete WEB-1 --yes
-npm run cli -- project delete WEB --yes
-npm run cli -- logout
+issctl issue delete WEB-1 --yes
+issctl project delete WEB --yes
+issctl logout
 ```
 
 Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. `--parent` accepts an issue key or ID; issue types default to `Issue`. In the web editor, clear the parent before selecting a different type, then save both changes together. Issue links accept keys or IDs for both issues and can be added or removed from either end. Unlinking does not delete either issue. CLI deletes require `--yes` because they cannot be undone.
@@ -114,10 +122,10 @@ Project arguments accept a key or numeric project ID. Issue arguments accept a k
 Global options:
 
 ```sh
-npm run cli -- --api http://localhost:3031/api login alice
-npm run cli -- --json issue list WEB
-npm run cli -- --help
-npm run cli -- issue update --help
+issctl --api http://localhost:3031/api login alice
+issctl --json issue list WEB
+issctl --help
+issctl issue update --help
 ```
 
 The CLI saves login information in `~/.config/minimal-issues/session.json`. Override that path with `ISSUES_CONFIG`, or select a different API URL with `ISSUES_API_URL`.
@@ -127,13 +135,13 @@ The CLI saves login information in `~/.config/minimal-issues/session.json`. Over
 The web app exposes status editing under **Project settings**. In the CLI:
 
 ```sh
-npm run --silent cli -- --json project statuses WEB > statuses.json
+issctl --json project statuses WEB > statuses.json
 # Edit statuses.json, preserving statusId for statuses you want to keep.
 # Omit statusId on newly added statuses. Array order sets display/default order.
-npm run cli -- project statuses WEB --file statuses.json
+issctl project statuses WEB --file statuses.json
 ```
 
-Use `npm run --silent cli -- ...` when redirecting JSON to a file so npm’s script banner is not included.
+`issctl --json` writes JSON without an npm script banner, so its output can be redirected directly to a file.
 
 Each status is `{ "statusId": 1, "title": "backlog", "isComplete": false }`. Keep at least one status, and move issues out of a status before removing it.
 

@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": { "issctl": "dist/cli/index.js" },
   "engines": { "node": ">=22.12.0" },
   "scripts": {
     "dev": "concurrently -k -n api,web \"tsx watch src/api/index.ts\" \"vite --config web/vite.config.ts\"",
