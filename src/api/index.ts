@@ -1,0 +1,12 @@
+import 'dotenv/config';
+import pg from 'pg';
+import { createApp } from './app.js';
+import { databaseUrl, migrate } from './db.js';
+import { loadUsers } from './users.js';
+const users = await loadUsers(process.env.USERS_FILE || 'config/users.json');
+const pool = new pg.Pool({ connectionString: databaseUrl() });
+await migrate(pool);
+const port = Number(process.env.PORT || 3031);
+const app = createApp({ pool, users, publicOrigin: process.env.PUBLIC_ORIGIN, secureCookies: process.env.COOKIE_SECURE === 'true' });
+const server = app.listen(port, () => console.log('Issues API listening on http://localhost:' + port));
+for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { server.close(() => { void pool.end().then(() => process.exit(0)); }); });

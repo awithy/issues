@@ -1,0 +1,91 @@
+import { useEffect, useState, type FormEvent } from 'react';
+import { ApiClient } from '../../src/shared/client';
+import type { Attachment, Issue, IssueInput, Project } from '../../src/shared/types';
+import { ErrorNotice, MarkdownField, message } from './ui';
+export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted }: {
+  api: ApiClient; project: Project; issueKey?: string; onBack: () => void;
+  onSaved: (issue: Issue) => void; onDeleted: () => void;
+}) {
+  const [issue, setIssue] = useState<Issue>();
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [notes, setNotes] = useState('');
+  const [statusId, setStatusId] = useState(project.issueStatuses[0].statusId);
+  const [labels, setLabels] = useState('');
+  const [assignee, setAssignee] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [loading, setLoading] = useState(!!issueKey);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!issueKey) return;
+    let active = true;
+    api.issue(issueKey).then(data => {
+      if (!active) return;
+      setIssue(data); setTitle(data.title); setDescription(data.description); setNotes(data.notes);
+      setStatusId(data.status.statusId); setLabels(data.labels.join(', ')); setAssignee(data.assignee); setAttachments(data.attachments);
+    }).catch(error => { if (active) setError(message(error)); }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [api, issueKey]);
+  async function run(work: () => Promise<void>) {
+    setBusy(true); setError(''); setSaved(false);
+    try { await work(); } catch (error) { setError(message(error)); } finally { setBusy(false); }
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      const data: IssueInput = { title, description, notes, statusId, assignee, labels: labels.split(',').map(label => label.trim()).filter(Boolean) };
+      const result = issue ? await api.updateIssue(issue.issueId, data) : await api.createIssue(project.projectId, data);
+      setIssue(result); setSaved(true); onSaved(result);
+    });
+  }
+  return <section className="issue-detail">
+    <button className="back-link" onClick={onBack}>← Back to issues</button>
+    <div className="page-heading"><div><div className="eyebrow">{project.key} / {issueKey || 'NEW ISSUE'}</div><h1>{issueKey ? 'Issue details' : 'Create issue'}</h1></div>
+      {issue && <button className="danger ghost" disabled={busy} onClick={() => {
+        if (confirm('Permanently delete ' + issue.issueKey + ' and all its attachments? This cannot be undone.')) void run(async () => { await api.deleteIssue(issue.issueId); onDeleted(); });
+      }}>Delete issue</button>}
+    </div>
+    <ErrorNotice error={error} />
+    {loading ? <p className="muted">Loading issue…</p> : issueKey && !issue ? null : <>
+      <form onSubmit={save} onChange={() => setSaved(false)}>
+        <div className="detail-layout"><div className="detail-main">
+          <label className="field">Title<input required maxLength={300} value={title} onChange={event => setTitle(event.target.value)} placeholder="What needs to happen?" /></label>
+          <MarkdownField label="Description" value={description} onChange={setDescription} />
+          <MarkdownField label="Notes" value={notes} onChange={setNotes} />
+        </div><aside className="detail-meta card">
+          <h3>Properties</h3>
+          <label className="field">Status<select value={statusId} onChange={event => setStatusId(Number(event.target.value))}>
+            {project.issueStatuses.map(status => <option key={status.statusId} value={status.statusId}>{status.title}</option>)}
+          </select></label>
+          <label className="field">Assignee<input value={assignee} onChange={event => setAssignee(event.target.value)} placeholder="Name or username" maxLength={300} /></label>
+          <label className="field">Labels<input aria-label="Labels" value={labels} onChange={event => setLabels(event.target.value)} placeholder="frontend, urgent" /><small>Separate labels with commas.</small></label>
+          {issue && <p className="muted small">Created {new Date(issue.createdAt).toLocaleDateString()}<br />Updated {new Date(issue.updatedAt).toLocaleDateString()}</p>}
+          <p className="muted small">Any status can move to any other status.</p>
+        </aside></div>
+        <div className="save-bar"><button className="primary" disabled={busy}>{busy ? 'Working…' : issue ? 'Save changes' : 'Create issue'}</button>
+          {saved && <span role="status" className="success">Changes saved</span>}<span className="muted small">Description and Notes support Markdown.</span>
+        </div>
+      </form>
+      <section className="attachments card"><div className="field-heading"><h3>Attachments <span className="count">{attachments.length}</span></h3>
+        {issue && <label className={'button secondary ' + (busy ? 'disabled' : '')}>Attach files<input className="sr-only" type="file" multiple aria-label="Attach files" disabled={busy} onChange={event => {
+          const files = Array.from(event.target.files || []); event.target.value = '';
+          void run(async () => {
+            for (const file of files) {
+              const result = await api.upload(issue.issueId, file, file.name);
+              setAttachments(previous => [...previous, result]);
+            }
+          });
+        }} /></label>}
+      </div>
+      {!issue ? <p className="muted">Create the issue before attaching files.</p> : !attachments.length ? <p className="muted">No files attached. Up to 25 MB per file.</p> : <ul className="attachment-list">
+        {attachments.map(file => <li key={file.attachmentId}><div><a href={api.attachmentUrl(file.attachmentId)} download>{file.filename}</a><small>{(file.size / 1024).toFixed(1)} KB</small></div>
+          <button className="ghost danger" disabled={busy} aria-label={'Delete attachment ' + file.filename} onClick={() => {
+            if (confirm('Permanently delete ' + file.filename + '?')) void run(async () => { await api.deleteAttachment(file.attachmentId); setAttachments(previous => previous.filter(a => a.attachmentId !== file.attachmentId)); });
+          }}>Delete</button></li>)}
+      </ul>}
+      </section>
+    </>}
+  </section>;
+}
