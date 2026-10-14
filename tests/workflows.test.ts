@@ -189,6 +189,36 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.equal((await api.createIssue(p.projectId, { title: 'Next' })).issueKey, 'NUM-6');
     await api.deleteProject(p.projectId);
   });
+  await t.test('explicit issue numbers preserve keys and advance the counter without lowering it', async () => {
+    const p = await api.createProject('Imported issues', 'IMPORT');
+    const imported = await api.createIssue(p.projectId, { title: 'Imported issue', issueNumber: 123 });
+    assert.equal(imported.issueKey, 'IMPORT-123');
+    assert.equal((await api.issue('IMPORT-123')).issueId, imported.issueId);
+    assert.equal((await api.createIssue(p.projectId, { title: 'Automatic' })).issueKey, 'IMPORT-124');
+    assert.equal((await api.createIssue(p.projectId, { title: 'Earlier issue', issueNumber: 7 })).issueKey, 'IMPORT-7');
+    assert.equal((await api.createIssue(p.projectId, { title: 'Next automatic' })).issueKey, 'IMPORT-125');
+
+    await assert.rejects(api.createIssue(p.projectId, { title: 'Duplicate', issueNumber: 123 }), error =>
+      failure(409)(error) && /issue number already exists/.test((error as Error).message));
+    assert.equal((await api.issue(imported.issueId)).title, 'Imported issue');
+    await request(app).patch('/api/issues/IMPORT-123').set('Authorization', 'Bearer ' + api.token).send({ issueNumber: 456 }).expect(400);
+    await assert.rejects(api.createIssue(p.projectId, { title: 'Invalid number', issueNumber: 0 }), failure(400));
+    assert.equal((await api.createIssue(p.projectId, { title: 'After rejected requests' })).issueKey, 'IMPORT-126');
+
+    const mixed = await Promise.all([
+      api.createIssue(p.projectId, { title: 'High number', issueNumber: 300 }),
+      api.createIssue(p.projectId, { title: 'Lower number', issueNumber: 200 }),
+      api.createIssue(p.projectId, { title: 'Concurrent automatic' }),
+    ]);
+    assert.equal(new Set(mixed.map(i => i.issueKey)).size, 3);
+    const highest = Math.max(...mixed.map(i => Number(i.issueKey.split('-')[1])));
+    assert.equal((await api.createIssue(p.projectId, { title: 'After concurrent imports' })).issueKey, 'IMPORT-' + (highest + 1));
+
+    const other = await api.createProject('Another import', 'IMPORT2');
+    assert.equal((await api.createIssue(other.projectId, { title: 'Same number, different project', issueNumber: 123 })).issueKey, 'IMPORT2-123');
+    await api.deleteProject(other.projectId);
+    await api.deleteProject(p.projectId);
+  });
   await t.test('CLI exercises login, projects, issue table, editing Notes/statuses and files via API', async () => {
     const temp = await mkdtemp(join(tmpdir(), 'issues-cli-'));
     try {
@@ -214,6 +244,12 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       assert.deepEqual(JSON.parse(await cli('--json', 'issue', 'links', created.issueKey)), []);
       await cli('issue', 'delete', child.issueKey, '--yes');
       assert.match(await cli('issue', 'list', 'CLI'), /From CLI/);
+      const imported = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'Imported from CLI', '--issue-number', '123')) as Issue;
+      assert.equal(imported.issueKey, 'CLI-123');
+      const automatic = JSON.parse(await cli('--json', 'issue', 'create', 'CLI', 'After import')) as Issue;
+      assert.equal(automatic.issueKey, 'CLI-124');
+      await assert.rejects(cli('issue', 'create', 'CLI', 'Duplicate number', '--issue-number', '123'), /issue number already exists/);
+      await assert.rejects(cli('issue', 'update', 'CLI-123', '--issue-number', '456'), /unknown option/);
       const notes = join(temp, 'notes.md'); await writeFile(notes, '## Updated via file');
       const updated = JSON.parse(await cli('--json', 'issue', 'update', 'CLI-1', '--notes-file', notes, '--status', 'archived', '--assignee', 'Someone external', '--labels', 'cli,test')) as Issue;
       assert.equal(updated.notes, '## Updated via file'); assert.equal(updated.status.title, 'archived');

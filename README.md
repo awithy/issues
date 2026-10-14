@@ -117,6 +117,8 @@ issctl project delete WEB --yes
 issctl logout
 ```
 
+For imports, `issctl issue create WEB "Imported issue" --issue-number 123` preserves the key `WEB-123`. The number must be unused in that project; automatic numbering continues above the highest allocated number. Issue numbers cannot be changed after creation.
+
 Project arguments accept a key or numeric project ID. Issue arguments accept a key or numeric issue ID. Status arguments accept a name or numeric status ID. `--parent` accepts an issue key or ID; issue types default to `Issue`. In the web editor, clear the parent before selecting a different type, then save both changes together. Issue links accept keys or IDs for both issues and can be added or removed from either end. Unlinking does not delete either issue. CLI deletes require `--yes` because they cannot be undone.
 
 Global options:

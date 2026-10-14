@@ -132,7 +132,7 @@ The first status is the default for new issues. Every project must retain at lea
 | --- | --- |
 | `issueId` | Integer identity primary key, independent of the human-readable key. |
 | `projectId` | Owning project; immutable in v1. |
-| `issueNumber` | Internal per-project number, unique together with `projectId`. |
+| `issueNumber` | Per-project number, unique together with `projectId`; optionally supplied on creation for imports, otherwise allocated automatically. Immutable after creation. |
 | `issueKey` | Computed from project key and issue number, e.g. `WEB-123`; not separately stored. |
 | `title` | Required text; up to 300 characters. |
 | `issueType` | `IssueType` is a string; stored as `issue_type`. Global allowed values: Bug, Issue, Task, Sub-Task, Story. Defaults to Issue. |
@@ -209,7 +209,9 @@ RETURNING next_issue_number - 1 AS issue_number;
 
 The update locks the project row. Concurrent creations within a project serialize on this row and receive distinct numbers. The issue is then inserted with the selected project status. If creation fails, the transaction rolls back, including the counter update.
 
-Deleting a committed issue does not decrement the counter, so its number is never reused within that surviving project. API issue routes accept either an internal issue ID or a key such as `WEB-123`.
+For imports, creation may instead supply an explicit `issueNumber`. In the same transaction, the project counter is updated to `GREATEST(next_issue_number, issueNumber + 1)` and the issue is inserted with that number. This takes the same project-row lock as automatic numbering, preserves gaps, and allows out-of-order imports without moving the counter backwards. An occupied number returns `409` without changing the existing issue or counter. Explicit numbers must be integers from 1 to 2,147,483,646, leaving room for the next-number counter in its PostgreSQL integer column. Internal `issueId` values remain database-generated and are unrelated to imported numbers.
+
+Deleting a committed issue does not decrement the counter, so automatic allocation never reuses its number within that surviving project. Explicit creation can fill any currently unoccupied number, including a previously deleted one; there is no deleted-number registry. API issue routes accept either an internal issue ID or a key such as `WEB-123`.
 
 ### Status configuration
 
@@ -309,6 +311,7 @@ Issue creation accepts:
 ```ts
 {
   title: string;
+  issueNumber?: number; // create-only; omit for automatic numbering
   issueType?: string; // Bug, Issue, Task, Sub-Task, Story; defaults to Issue
   parentIssueId?: number | null; // non-null exactly when issueType is Sub-Task
   description?: string;
@@ -319,7 +322,7 @@ Issue creation accepts:
 }
 ```
 
-Missing optional fields receive their defaults. Patches accept a non-empty subset of supported fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
+Missing optional fields receive their defaults. `issueNumber` is accepted only on creation; patches cannot renumber an issue. Patches accept a non-empty subset of editable fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
 
 Issue responses include `issueType`, nullable `parentIssueId`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
 
@@ -335,7 +338,7 @@ Errors have the shape `{ "error": "message" }` and an appropriate HTTP status:
 | 401 | Bad login, missing session, expired session, or revoked session. |
 | 403 | Disallowed browser origin. |
 | 404 | Missing project, issue, attachment, or endpoint. |
-| 409 | Duplicate project key, removal of an in-use status, or conflicting related data. |
+| 409 | Duplicate project key or issue number within a project, removal of an in-use status, or conflicting related data. |
 | 413 | File or request exceeds its size limit. |
 | 429 | Login rate limit exceeded. |
 | 500 | Unexpected server error; detailed error is logged server-side. |
@@ -365,7 +368,7 @@ Search/filter changes request fresh API results after a short delay. Mutations u
 
 The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
 
-Project arguments accept a key or ID. Issue arguments accept a key or ID. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
+Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` preserves a per-project number for imports; this option is not available on update and is not exposed in the web editor. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
 `issue link <issue> <other-issue>` adds an undirected link; `issue links <issue>` lists linked summaries, and `issue unlink <issue> <other-issue>` removes a link from either end without confirmation or issue deletion. `issue show` also includes linked issues. Both endpoints accept an issue key or ID.
 
@@ -438,7 +441,8 @@ Primary coverage includes:
 - Free-text assignees, labels, search, and status filtering.
 - Any-to-any transitions and editable status configuration.
 - Exact binary attachment round trips and permanent deletion.
-- Concurrent issue creation with unique numbering and no reuse after deletion.
+- Concurrent issue creation with unique numbering and no automatic reuse after deletion.
+- Explicit issue numbers through the API and CLI, out-of-order and concurrent imports, counter advancement, duplicate rejection, and prevention of renumbering.
 - Project/issue cascading deletes.
 - CLI login, output, edits, file operations, status configuration, and deletes.
 

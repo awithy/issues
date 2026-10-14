@@ -23,6 +23,8 @@ const issueInput = z.object({
   statusId: id.optional(), labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
   assignee: z.string().trim().max(300).optional(),
 }).strict();
+// Leave room for the next-number counter in PostgreSQL's integer column.
+const issueCreateInput = issueInput.extend({ issueNumber: z.number().int().positive().max(2147483646).optional() });
 const nonempty = (value: object) => Object.keys(value).length > 0;
 const projectInput = z.object({ title, key: z.string().trim().toUpperCase().regex(/^[A-Z][A-Z0-9]{0,11}$/, 'Use 1–12 letters or numbers, starting with a letter') }).strict();
 const statuses = z.array(z.object({ statusId: id.optional(), title: z.string().trim().min(1).max(100), isComplete: z.boolean() }).strict()).min(1).max(30)
@@ -84,7 +86,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
     const filters = z.object({ statusId: id.optional(), search: z.string().max(300).optional() }).parse(req.query);
     res.json(await repo.issues(id.parse(req.params.id), filters));
   });
-  router.post('/projects/:id/issues', async (req, res) => res.status(201).json(await repo.createIssue(id.parse(req.params.id), issueInput.parse(req.body))));
+  router.post('/projects/:id/issues', async (req, res) => res.status(201).json(await repo.createIssue(id.parse(req.params.id), issueCreateInput.parse(req.body))));
   router.get('/issues/:ref', async (req, res) => res.json(await repo.issue(issueRef(req.params.ref))));
   router.patch('/issues/:ref', async (req, res) => res.json(await repo.updateIssue(issueRef(req.params.ref), issueInput.partial().refine(nonempty, 'Provide a field to update').parse(req.body))));
   router.delete('/issues/:ref', async (req, res) => { await repo.deleteIssue(issueRef(req.params.ref)); res.sendStatus(204); });
@@ -111,7 +113,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
     if (error instanceof z.ZodError) { res.status(400).json({ error: error.issues.map(i => (i.path.join('.') ? i.path.join('.') + ': ' : '') + i.message).join('; ') }); return; }
     if (error instanceof HttpError) { res.status(error.status).json({ error: error.message }); return; }
     if (error instanceof multer.MulterError) { res.status(error.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: error.code === 'LIMIT_FILE_SIZE' ? 'File is too large (maximum 25 MB)' : error.message }); return; }
-    if (error.code === '23505') { res.status(409).json({ error: 'That project key already exists' }); return; }
+    if (error.code === '23505') { res.status(409).json({ error: error.constraint === 'issues_project_id_issue_number_key' ? 'That issue number already exists in this project' : 'That project key already exists' }); return; }
     if (error.code === '23503') { res.status(409).json({ error: error.constraint === 'issues_parent_issue_id_fkey' ? 'Move or delete child Sub-Tasks before deleting their parent issue or project.' : 'A related record changed. Refresh and try again.' }); return; }
     if (error.type === 'entity.parse.failed' || error.type === 'entity.too.large') { res.status(error.status).json({ error: error.type === 'entity.too.large' ? 'Request is too large' : 'Invalid JSON' }); return; }
     console.error(error); res.status(500).json({ error: 'Internal server error' });

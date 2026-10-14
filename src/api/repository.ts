@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { Attachment, Issue, IssueInput, Project, StatusInput, IssueFilters } from '../shared/types.js';
+import type { Attachment, CreateIssueInput, Issue, IssueInput, Project, StatusInput, IssueFilters } from '../shared/types.js';
 import { DEFAULT_STATUSES } from '../shared/types.js';
 import { HttpError, transaction } from './db.js';
 type Db = pg.Pool | pg.PoolClient;
@@ -88,11 +88,16 @@ export class Repository {
     // Parents can span projects; serialize graph edits so concurrent edits cannot create cycles.
     await db.query("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.issue_parents'))");
   }
-  async createIssue(projectId: number, input: IssueInput) {
+  async createIssue(projectId: number, input: CreateIssueInput) {
     return transaction(this.pool, async db => {
       if (input.parentIssueId != null) await this.lockParents(db);
-      // Atomic counter also locks the project: numbers are unique under concurrent creation.
-      const { rows: [counter] } = await db.query<{ issue_number: number }>('UPDATE projects SET next_issue_number=next_issue_number+1 WHERE project_id=$1 RETURNING next_issue_number-1 AS issue_number', [projectId]);
+      // Both paths lock the project; explicit numbers advance the counter but never lower it.
+      const { rows: [counter] } = await db.query<{ issue_number: number }>(
+        input.issueNumber === undefined
+          ? 'UPDATE projects SET next_issue_number=next_issue_number+1 WHERE project_id=$1 RETURNING next_issue_number-1 AS issue_number'
+          : 'UPDATE projects SET next_issue_number=GREATEST(next_issue_number,$2::integer+1) WHERE project_id=$1 RETURNING $2::integer AS issue_number',
+        input.issueNumber === undefined ? [projectId] : [projectId, input.issueNumber],
+      );
       if (!counter) throw new HttpError(404, 'Project not found');
       const project = await this.project(projectId, db);
       const statusId = input.statusId ?? project.issueStatuses[0]!.statusId;

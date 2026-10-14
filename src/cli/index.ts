@@ -105,9 +105,9 @@ issues.command('list <project>').option('--status <name-or-id>').option('--searc
     const list = await (await api()).issues(p.projectId, { statusId: options.status ? statusId(p, options.status) : undefined, search: options.search });
     print(list, list.map(i => ({ key: i.issueKey, title: i.title, type: i.issueType, parent: i.parentIssueId, status: i.status.title, assignee: i.assignee, labels: i.labels.join(', ') })));
   });
-issueOptions(issues.command('create <project> <title>')).action(async (ref, title, options) => {
+issueOptions(issues.command('create <project> <title>').option('--issue-number <number>', 'Set a per-project issue number on creation (for imports)')).action(async (ref, title, options) => {
   const p = await project(ref); const data = await input(options, p);
-  showIssue(await (await api()).createIssue(p.projectId, { ...data, title }));
+  showIssue(await (await api()).createIssue(p.projectId, { ...data, title, issueNumber: options.issueNumber === undefined ? undefined : Number(options.issueNumber) }));
 });
 issues.command('show <issue>').action(async ref => showIssue(await (await api()).issue(ref)));
 issueOptions(issues.command('update <issue>').option('--title <title>')).action(async (ref, options) => {

@@ -11,6 +11,7 @@ export interface Issue {
   assignee: string; attachments: Attachment[]; linkedIssues: LinkedIssue[]; createdAt: string; updatedAt: string;
 }
 export interface IssueInput { title: string; issueType?: IssueType; parentIssueId?: number | null; description?: string; notes?: string; statusId?: number; labels?: string[]; assignee?: string }
+export interface CreateIssueInput extends IssueInput { issueNumber?: number }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }
 export interface IssueFilters { statusId?: number; search?: string }
 export const DEFAULT_STATUSES: StatusInput[] = [
