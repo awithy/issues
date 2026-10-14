@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir, chmod, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, basename, resolve } from 'node:path';
 import { ApiClient } from '../shared/client.js';
-import type { Issue, IssueInput, Project, StatusInput } from '../shared/types.js';
+import type { Issue, UpdateIssueInput, Project, StatusInput } from '../shared/types.js';
 import { readPassword } from './password.js';
 
 const sessionFile = process.env.ISSUES_CONFIG || resolve(homedir(), '.config/minimal-issues/session.json');
@@ -42,6 +42,7 @@ function confirm(options: { yes?: boolean }) {
 function issueOptions(command: Command) {
   return command.option('--description <markdown>', 'Description Markdown')
     .option('--description-file <path>', 'Read description Markdown from a file')
+    .option('--updated-at <timestamp>', 'Override update timestamp (ISO 8601 with timezone; for imports)')
     .option('--notes <markdown>', 'Notes Markdown')
     .option('--notes-file <path>', 'Read notes Markdown from a file')
     .option('--issue-type <type>', 'Global issue type: Bug, Issue, Task, Sub-Task, Story')
@@ -51,10 +52,10 @@ function issueOptions(command: Command) {
     .option('--assignee <text>', 'Free-text assignee; use an empty string to clear')
     .option('--resolution-date <timestamp>', 'Resolution timestamp (ISO 8601 with timezone); use an empty string to clear');
 }
-type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string; resolutionDate?: string };
-async function input(options: Options, p: Project): Promise<Partial<IssueInput>> {
-  const data: Partial<IssueInput> = {};
-  for (const field of ['title', 'description', 'notes', 'assignee'] as const) if (options[field] !== undefined) data[field] = options[field];
+type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string; resolutionDate?: string; updatedAt?: string };
+async function input(options: Options, p: Project): Promise<UpdateIssueInput> {
+  const data: UpdateIssueInput = {};
+  for (const field of ['title', 'description', 'notes', 'assignee', 'updatedAt'] as const) if (options[field] !== undefined) data[field] = options[field];
   if (options.descriptionFile) data.description = await readFile(options.descriptionFile, 'utf8');
   if (options.notesFile) data.notes = await readFile(options.notesFile, 'utf8');
   if (options.status) data.statusId = statusId(p, options.status);
@@ -110,10 +111,9 @@ issues.command('list <project>').option('--status <name-or-id>').option('--searc
   });
 issueOptions(issues.command('create <project> <title>')
   .option('--issue-number <number>', 'Set a per-project issue number on creation (for imports)')
-  .option('--created-at <timestamp>', 'Original creation timestamp (ISO 8601 with timezone; create-only)')
-  .option('--updated-at <timestamp>', 'Original update timestamp (ISO 8601 with timezone; create-only)')).action(async (ref, title, options) => {
+  .option('--created-at <timestamp>', 'Original creation timestamp (ISO 8601 with timezone; create-only)')).action(async (ref, title, options) => {
   const p = await project(ref); const data = await input(options, p);
-  showIssue(await (await api()).createIssue(p.projectId, { ...data, title, issueNumber: options.issueNumber === undefined ? undefined : Number(options.issueNumber), createdAt: options.createdAt, updatedAt: options.updatedAt }));
+  showIssue(await (await api()).createIssue(p.projectId, { ...data, title, issueNumber: options.issueNumber === undefined ? undefined : Number(options.issueNumber), createdAt: options.createdAt }));
 });
 issues.command('show <issue>').action(async ref => showIssue(await (await api()).issue(ref)));
 issueOptions(issues.command('update <issue>').option('--title <title>')).action(async (ref, options) => {

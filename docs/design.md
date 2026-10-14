@@ -144,7 +144,7 @@ The first status is the default for new issues. Every project must retain at lea
 | `assignee` | Free text; defaults to an empty string. No user foreign key. |
 | `attachments` | Attachment metadata loaded from `attachments`; blobs are not embedded in issue JSON. |
 | `linkedIssues` | Summaries of directly linked issues: `issueId`, `projectId`, `issueKey`, and current `title`. Defaults to `[]`. |
-| `createdAt`, `updatedAt` | Timestamp fields, optionally supplied on creation. Otherwise use database time; issue patches advance `updatedAt`. Neither can be overridden by a patch. |
+| `createdAt`, `updatedAt` | Timestamp fields, optionally supplied on creation. Otherwise use database time. Issue patches use an explicit `updatedAt` when supplied, otherwise advance it to database time. `createdAt` is create-only. |
 | `resolutionDate` | Nullable resolution timestamp, stored as `resolution_date`. Defaults to null; editable independently of status. |
 
 An assignee can be a configured username, someone external to the tracker, or a team name. Labels are simple strings, not a managed taxonomy. Updating labels replaces the array. Description and Notes are plain Markdown source, not stored HTML.
@@ -216,7 +216,7 @@ Deleting a committed issue does not decrement the counter, so automatic allocati
 
 ### Issue timestamps and resolution date
 
-Creation accepts optional `createdAt` and `updatedAt` timestamps. If only `createdAt` is supplied, `updatedAt` defaults to that same timestamp; otherwise omitted timestamps use database time. API inputs use ISO 8601 with a timezone (`Z` or an offset such as `-07:00`), preserving the instant at millisecond precision. These fields are create-only: subsequent issue edits advance `updatedAt` to the time of the edit. Link and attachment operations do not change these issue timestamps.
+Creation accepts optional `createdAt` and `updatedAt` timestamps. If only `createdAt` is supplied, `updatedAt` defaults to that same timestamp; otherwise omitted timestamps use database time. API inputs use ISO 8601 with a timezone (`Z` or an offset such as `-07:00`), preserving the instant at millisecond precision. `createdAt` is create-only. Issue patches may supply `updatedAt` to override the update timestamp, either alone or alongside content changes; otherwise it advances to the time of the edit. The override is available to any authenticated user through the API and CLI, but not exposed in the web editor. It cannot be null or cleared. This supports finalizing imported content without losing its original update timestamp. Link and attachment operations do not change these issue timestamps.
 
 `resolutionDate` accepts a timestamp or null on creation and patch. Omission on creation defaults to null; omission on patch preserves the value. There is no automatic coupling to status: moving to a complete status does not set it, reopening does not clear it, and a date can coexist with an incomplete status.
 
@@ -320,7 +320,7 @@ Issue creation accepts:
   title: string;
   issueNumber?: number; // create-only; omit for automatic numbering
   createdAt?: string; // create-only ISO 8601 timestamp with timezone
-  updatedAt?: string; // create-only; defaults to createdAt if supplied, otherwise now
+  updatedAt?: string; // ISO 8601 timestamp with timezone; defaults to createdAt if supplied, otherwise now
   resolutionDate?: string | null; // ISO 8601 timestamp with timezone; defaults to null
   issueType?: string; // Bug, Issue, Task, Sub-Task, Story; defaults to Issue
   parentIssueId?: number | null; // non-null exactly when issueType is Sub-Task
@@ -332,7 +332,7 @@ Issue creation accepts:
 }
 ```
 
-Missing optional fields receive their defaults. `issueNumber`, `createdAt`, and `updatedAt` are accepted only on creation. Patches cannot renumber an issue or override its creation/update timestamps; `resolutionDate: null` clears the resolution timestamp. Patches accept a non-empty subset of editable fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
+Missing optional fields receive their defaults. `issueNumber` and `createdAt` are accepted only on creation. Patches cannot renumber an issue or override its creation timestamp, but may supply `updatedAt` to override the update timestamp; otherwise it advances to database time. A timestamp-only patch is valid; `resolutionDate: null` clears the resolution timestamp. Patches accept a non-empty subset of editable fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
 
 Issue responses include `issueType`, nullable `parentIssueId` and `resolutionDate`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
 
@@ -378,7 +378,7 @@ Search/filter changes request fresh API results after a short delay. Mutations u
 
 The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
 
-Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` sets an explicit per-project number; this option is not available on update and is not exposed in the web editor. `--created-at` and `--updated-at` also apply only to creation. `--resolution-date` applies to create/update and accepts an ISO 8601 timestamp with timezone or an empty string to clear. `issue show` includes creation, update, and resolution timestamps. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
+Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` sets an explicit per-project number; this option is not available on update and is not exposed in the web editor. `--created-at` applies only to creation. `--updated-at` applies to create/update and overrides the update timestamp with an ISO 8601 timestamp with timezone; it can be used alone for timestamp finalization. `--resolution-date` applies to create/update and accepts an ISO 8601 timestamp with timezone or an empty string to clear. `issue show` includes creation, update, and resolution timestamps. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
 `issue link <issue> <other-issue>` adds an undirected link; `issue links <issue>` lists linked summaries, and `issue unlink <issue> <other-issue>` removes a link from either end without confirmation or issue deletion. `issue show` also includes linked issues. Both endpoints accept an issue key or ID.
 

@@ -1,4 +1,4 @@
-import type { Attachment, CreateIssueInput, Issue, IssueFilters, IssueInput, IssueType, Project, StatusInput } from './types.js';
+import type { Attachment, CreateIssueInput, Issue, IssueFilters, UpdateIssueInput, IssueType, Project, StatusInput } from './types.js';
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
@@ -32,7 +32,7 @@ export class ApiClient {
   }
   issue(id: number | string) { return this.request<Issue>('/issues/' + encodeURIComponent(id)); }
   createIssue(projectId: number, data: CreateIssueInput) { return this.request<Issue>('/projects/' + projectId + '/issues', { method: 'POST', body: JSON.stringify(data) }); }
-  updateIssue(id: number | string, data: Partial<IssueInput>) { return this.request<Issue>('/issues/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }); }
+  updateIssue(id: number | string, data: UpdateIssueInput) { return this.request<Issue>('/issues/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }); }
   deleteIssue(id: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id), { method: 'DELETE' }); }
   linkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'PUT' }); }
   unlinkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'DELETE' }); }

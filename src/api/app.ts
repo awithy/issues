@@ -92,7 +92,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   });
   router.post('/projects/:id/issues', async (req, res) => res.status(201).json(await repo.createIssue(id.parse(req.params.id), issueCreateInput.parse(req.body))));
   router.get('/issues/:ref', async (req, res) => res.json(await repo.issue(issueRef(req.params.ref))));
-  router.patch('/issues/:ref', async (req, res) => res.json(await repo.updateIssue(issueRef(req.params.ref), issueInput.partial().refine(nonempty, 'Provide a field to update').parse(req.body))));
+  router.patch('/issues/:ref', async (req, res) => res.json(await repo.updateIssue(issueRef(req.params.ref), issueInput.partial().extend({ updatedAt: timestamp.optional() }).refine(nonempty, 'Provide a field to update').parse(req.body))));
   router.delete('/issues/:ref', async (req, res) => { await repo.deleteIssue(issueRef(req.params.ref)); res.sendStatus(204); });
   router.put('/issues/:ref/links/:other', async (req, res) => { await repo.linkIssue(issueRef(req.params.ref), issueRef(req.params.other)); res.sendStatus(204); });
   router.delete('/issues/:ref/links/:other', async (req, res) => { await repo.unlinkIssue(issueRef(req.params.ref), issueRef(req.params.other)); res.sendStatus(204); });

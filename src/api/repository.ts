@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { Attachment, CreateIssueInput, Issue, IssueInput, Project, StatusInput, IssueFilters } from '../shared/types.js';
+import type { Attachment, CreateIssueInput, Issue, UpdateIssueInput, Project, StatusInput, IssueFilters } from '../shared/types.js';
 import { DEFAULT_STATUSES } from '../shared/types.js';
 import { HttpError, transaction } from './db.js';
 type Db = pg.Pool | pg.PoolClient;
@@ -109,7 +109,7 @@ export class Repository {
       return this.issue(row!.issue_id, db);
     });
   }
-  async updateIssue(ref: string | number, input: Partial<IssueInput>) {
+  async updateIssue(ref: string | number, input: UpdateIssueInput) {
     return transaction(this.pool, async db => {
       if (input.parentIssueId !== undefined) await this.lockParents(db);
       const initial = await this.issue(ref, db);
@@ -120,10 +120,11 @@ export class Repository {
       if (current.parentIssueId !== null && input.issueType !== undefined && input.issueType !== current.issueType && input.parentIssueId !== null) throw new HttpError(400, 'Remove the parent before changing a Sub-Task type (send parentIssueId: null with the new type)');
       await this.validateParent(db, input.issueType ?? current.issueType, input.parentIssueId === undefined ? current.parentIssueId : input.parentIssueId, current.issueId);
       if (input.statusId !== undefined && !project.issueStatuses.some(s => s.statusId === input.statusId)) throw new HttpError(400, 'Status does not belong to this project');
-      const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', labels: 'labels', assignee: 'assignee', issueType: 'issue_type', parentIssueId: 'parent_issue_id', resolutionDate: 'resolution_date' };
+      const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', labels: 'labels', assignee: 'assignee', issueType: 'issue_type', parentIssueId: 'parent_issue_id', resolutionDate: 'resolution_date', updatedAt: 'updated_at' };
       const values: unknown[] = [current.issueId];
       const sets = Object.entries(input).map(([key, value]) => { values.push(value); return columns[key] + '=$' + values.length; });
-      await db.query('UPDATE issues SET ' + [...sets, 'updated_at=now()'].join(',') + ' WHERE issue_id=$1', values);
+      if (input.updatedAt === undefined) sets.push('updated_at=now()');
+      await db.query('UPDATE issues SET ' + sets.join(',') + ' WHERE issue_id=$1', values);
       return this.issue(current.issueId, db);
     });
   }

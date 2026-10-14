@@ -12,6 +12,7 @@ export interface Issue {
 }
 export interface IssueInput { title: string; issueType?: IssueType; parentIssueId?: number | null; description?: string; notes?: string; statusId?: number; labels?: string[]; assignee?: string; resolutionDate?: string | null }
 export interface CreateIssueInput extends IssueInput { issueNumber?: number; createdAt?: string; updatedAt?: string }
+export interface UpdateIssueInput extends Partial<IssueInput> { updatedAt?: string }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }
 export interface IssueFilters { statusId?: number; search?: string }
 export const DEFAULT_STATUSES: StatusInput[] = [
