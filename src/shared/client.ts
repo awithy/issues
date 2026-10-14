@@ -1,4 +1,4 @@
-import type { Attachment, CreateIssueInput, Issue, IssueFilters, UpdateIssueInput, IssueType, Project, StatusInput } from './types.js';
+import type { Attachment, CreateIssueInput, Issue, IssueFilters, IssuePage, IssuePagination, UpdateIssueInput, IssueType, Project, StatusInput } from './types.js';
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
@@ -24,11 +24,20 @@ export class ApiClient {
   createProject(title: string, key: string) { return this.request<Project>('/projects', { method: 'POST', body: JSON.stringify({ title, key }) }); }
   updateProject(id: number, data: { title?: string; issueStatuses?: StatusInput[] }) { return this.request<Project>('/projects/' + id, { method: 'PATCH', body: JSON.stringify(data) }); }
   deleteProject(id: number) { return this.request<void>('/projects/' + id, { method: 'DELETE' }); }
-  issues(projectId: number, filters: IssueFilters = {}) {
+  private issueQuery(filters: IssueFilters) {
     const query = new URLSearchParams();
     if (filters.statusId) query.set('statusId', String(filters.statusId));
     if (filters.search) query.set('search', filters.search);
-    return this.request<Issue[]>('/projects/' + projectId + '/issues?' + query);
+    return query;
+  }
+  issues(projectId: number, filters: IssueFilters = {}) {
+    return this.request<Issue[]>('/projects/' + projectId + '/issues?' + this.issueQuery(filters));
+  }
+  issuesPage(projectId: number, pagination: IssuePagination, filters: IssueFilters = {}) {
+    const query = this.issueQuery(filters);
+    query.set('page', String(pagination.page));
+    query.set('pageSize', String(pagination.pageSize));
+    return this.request<IssuePage>('/projects/' + projectId + '/issues?' + query);
   }
   issue(id: number | string) { return this.request<Issue>('/issues/' + encodeURIComponent(id)); }
   createIssue(projectId: number, data: CreateIssueInput) { return this.request<Issue>('/projects/' + projectId + '/issues', { method: 'POST', body: JSON.stringify(data) }); }

@@ -15,6 +15,10 @@ export interface CreateIssueInput extends IssueInput { issueNumber?: number; cre
 export interface UpdateIssueInput extends Partial<IssueInput> { updatedAt?: string }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }
 export interface IssueFilters { statusId?: number; search?: string }
+export const ISSUE_PAGE_SIZES = [100, 500, 1000] as const;
+export type IssuePageSize = typeof ISSUE_PAGE_SIZES[number];
+export interface IssuePagination { page: number; pageSize: IssuePageSize }
+export interface IssuePage extends IssuePagination { items: Issue[]; total: number; complete: number }
 export const DEFAULT_STATUSES: StatusInput[] = [
   { title: 'backlog', isComplete: false }, { title: 'design', isComplete: false },
   { title: 'ready', isComplete: false }, { title: 'in progress', isComplete: false },

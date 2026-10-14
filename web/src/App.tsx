@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ApiClient, ApiError } from '../../src/shared/client';
-import type { Issue, Project } from '../../src/shared/types';
+import { ISSUE_PAGE_SIZES, type IssuePageSize, type Issue, type Project } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
 import { ProjectSettings } from './ProjectSettings';
@@ -18,6 +18,11 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<IssuePageSize>(100);
+  const [total, setTotal] = useState(0);
+  const [complete, setComplete] = useState(0);
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -45,17 +50,20 @@ export function App() {
       .catch(error => { if (active) setError(message(error)); }).finally(() => { if (active) setProjectsLoading(false); });
     return () => { active = false; };
   }, [api, username]);
-  useEffect(() => { setSearch(''); setStatusFilter(''); setSettings(false); }, [route.projectId]);
+  useEffect(() => { setSearch(''); setStatusFilter(''); setPage(1); setSettings(false); }, [route.projectId]);
   useEffect(() => {
-    if (!username || !project) { setIssues([]); return; }
+    if (!username || !project) { setIssues([]); setTotal(0); setComplete(0); return; }
     let active = true; setLoading(true);
     const timeout = setTimeout(() => {
-      api.issues(project.projectId, { search, statusId: statusFilter ? Number(statusFilter) : undefined })
-        .then(list => { if (active) setIssues(list); }).catch(error => { if (active) setError(message(error)); })
+      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined })
+        .then(result => {
+          if (!active) return;
+          setIssues(result.items); setTotal(result.total); setComplete(result.complete); setPage(result.page);
+        }).catch(error => { if (active) setError(message(error)); })
         .finally(() => { if (active) setLoading(false); });
     }, 150);
     return () => { active = false; clearTimeout(timeout); };
-  }, [api, username, project?.projectId, route.issue, search, statusFilter, revision]);
+  }, [api, username, project?.projectId, route.issue, search, statusFilter, page, pageSize, revision]);
   if (checking) return <div className="loading-screen">Loading Issues…</div>;
   if (!username) return <Login api={api} initialError={error} onLogin={user => { setError(''); setUsername(user); }} />;
   return <div className="app-shell">
@@ -80,9 +88,9 @@ export function App() {
           <div className="page-heading"><div><div className="eyebrow">{project.key} / PROJECT</div><h1>{project.title}</h1><p className="muted">Everything that needs to happen, in one place.</p></div>
             <div className="heading-actions"><button className="secondary" onClick={() => setSettings(true)}>Project settings</button><button className="primary" onClick={() => navigate(project.projectId, 'new')}>+ Create issue</button></div>
           </div>
-          <div className="table-toolbar"><div className="toolbar-left"><h2>Issues <span className="count">{issues.length}</span></h2><span className="divider" /><span className="muted small">{issues.filter(i => i.status.isComplete).length} complete</span></div>
-            <div className="filters"><input aria-label="Search issues" placeholder="Search issues…" value={search} onChange={event => setSearch(event.target.value)} />
-              <select aria-label="Filter by status" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="">All statuses</option>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select>
+          <div className="table-toolbar"><div className="toolbar-left"><h2>Issues <span className="count">{total}</span></h2><span className="divider" /><span className="muted small">{complete} complete</span></div>
+            <div className="filters"><input aria-label="Search issues" placeholder="Search issues…" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} />
+              <select aria-label="Filter by status" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }}><option value="">All statuses</option>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select>
             </div>
           </div>
           <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Status</th><th>Assignee</th><th>Labels</th></tr></thead>
@@ -101,6 +109,17 @@ export function App() {
               {!loading && <><p>{search || statusFilter ? 'Try a different search or status.' : 'Create your first issue and give the work a place to live.'}</p>{!search && !statusFilter && <button className="secondary" onClick={() => navigate(project.projectId, 'new')}>Create first issue</button>}</>}
             </div>}
           </div>
+          <nav className="pagination" aria-label="Issue pagination">
+            <label>Items per page <select value={pageSize} onChange={event => { setPageSize(Number(event.target.value) as IssuePageSize); setPage(1); }}>
+              {ISSUE_PAGE_SIZES.map(size => <option key={size} value={size}>{size}</option>)}
+            </select></label>
+            <span className="muted small" aria-live="polite">{loading ? 'Loading issues…' : total ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)} of ${total} issues` : '0 issues'}</span>
+            <div className="pagination-actions">
+              <button className="secondary" disabled={loading || page <= 1} onClick={() => setPage(p => p - 1)}>Previous</button>
+              <span className="small">Page {page} of {pageCount}</span>
+              <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
+            </div>
+          </nav>
           <p className="table-hint">Click an issue to edit details. Change its status right here.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>

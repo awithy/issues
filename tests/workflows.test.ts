@@ -85,6 +85,37 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.createIssue(project.projectId, { title: ' ' }), failure(400));
     await assert.rejects(api.issue('WEB-99999'), failure(404));
   });
+  await t.test('paginated lists: page sizes, ordering, matching counts, filters, and clamping', async () => {
+    const p = await api.createProject('Pagination', 'PAGE');
+    const backlog = p.issueStatuses[0]!.statusId;
+    const done = p.issueStatuses.find(s => s.title === 'done')!.statusId;
+    await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id)
+      SELECT $1,n,CASE WHEN n <= 101 THEN 'Needle ' ELSE 'Work ' END || n,
+        CASE WHEN n <= 101 THEN $3::int ELSE $2::int END FROM generate_series(1,1001) n`, [p.projectId, backlog, done]);
+    const first = await api.issuesPage(p.projectId, { page: 1, pageSize: 100 });
+    assert.equal(first.total, 1001); assert.equal(first.complete, 101);
+    assert.equal(first.items.length, 100);
+    assert.equal(first.items[0]!.issueKey, 'PAGE-1001');
+    assert.equal(first.items.at(-1)!.issueKey, 'PAGE-902');
+    const second = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 });
+    assert.equal(second.items[0]!.issueKey, 'PAGE-901');
+    for (const pageSize of [500, 1000] as const) {
+      const result = await api.issuesPage(p.projectId, { page: 1, pageSize });
+      assert.equal(result.items.length, pageSize); assert.equal(result.total, 1001);
+    }
+    const filtered = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, { search: 'Needle', statusId: done });
+    assert.equal(filtered.total, 101); assert.equal(filtered.complete, 101);
+    assert.deepEqual(filtered.items.map(i => i.issueKey), ['PAGE-1']);
+    const empty = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, { search: 'absent' });
+    assert.equal(empty.total, 0); assert.equal(empty.page, 1); assert.deepEqual(empty.items, []);
+    await api.deleteIssue('PAGE-1');
+    const clamped = await api.issuesPage(p.projectId, { page: 11, pageSize: 100 });
+    assert.equal(clamped.page, 10); assert.equal(clamped.items.length, 100);
+    assert.equal((await api.issues(p.projectId)).length, 1000); // Existing CLI/selector contract.
+    await assert.rejects(api.request(`/projects/${p.projectId}/issues?pageSize=50`), failure(400));
+    await assert.rejects(api.request(`/projects/${p.projectId}/issues?pageSize=100&page=0`), failure(400));
+    await api.deleteProject(p.projectId);
+  });
   await t.test('global issue types and parent relationships, including type conversion', async () => {
     assert.deepEqual(await api.issueTypes(), ISSUE_TYPES);
     const p = await api.createProject('Issue types', 'TYPES');

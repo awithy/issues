@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { Repository } from './repository.js';
 import { HttpError } from './db.js';
 import type { User } from './users.js';
-import { ISSUE_TYPES } from '../shared/types.js';
+import { ISSUE_TYPES, ISSUE_PAGE_SIZES } from '../shared/types.js';
 
 const id = z.coerce.number().int().positive().max(2147483647);
 const title = z.string().trim().min(1).max(300);
@@ -87,8 +87,13 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   router.patch('/projects/:id', async (req, res) => res.json(await repo.updateProject(id.parse(req.params.id), projectPatch.parse(req.body))));
   router.delete('/projects/:id', async (req, res) => { await repo.deleteProject(id.parse(req.params.id)); res.sendStatus(204); });
   router.get('/projects/:id/issues', async (req, res) => {
-    const filters = z.object({ statusId: id.optional(), search: z.string().max(300).optional() }).parse(req.query);
-    res.json(await repo.issues(id.parse(req.params.id), filters));
+    const { page, pageSize, ...filters } = z.object({
+      statusId: id.optional(), search: z.string().max(300).optional(),
+      page: id.default(1),
+      pageSize: z.coerce.number().pipe(z.union(ISSUE_PAGE_SIZES.map(size => z.literal(size)))).optional(),
+    }).parse(req.query);
+    const projectId = id.parse(req.params.id);
+    res.json(pageSize === undefined ? await repo.issues(projectId, filters) : await repo.issues(projectId, filters, { page, pageSize }));
   });
   router.post('/projects/:id/issues', async (req, res) => res.status(201).json(await repo.createIssue(id.parse(req.params.id), issueCreateInput.parse(req.body))));
   router.get('/issues/:ref', async (req, res) => res.json(await repo.issue(issueRef(req.params.ref))));

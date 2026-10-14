@@ -150,6 +150,70 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   expect(errors).toEqual([]);
 });
 
+test('issue pagination: sizes, navigation, filters, and shrinking results', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Paginated work', key: 'PAGE' } })).json() as Project;
+  await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id)
+    SELECT $1,n,CASE WHEN n <= 101 THEN 'Needle ' ELSE 'Work ' END || n,
+      CASE WHEN n <= 101 THEN $3::int ELSE $2::int END FROM generate_series(1,1001) n`,
+  [project.projectId, project.issueStatuses[0]!.statusId, project.issueStatuses.find(s => s.title === 'done')!.statusId]);
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const rows = page.locator('.issues-table tbody tr');
+  const pagination = page.getByRole('navigation', { name: 'Issue pagination' });
+  const previous = pagination.getByRole('button', { name: 'Previous', exact: true });
+  const next = pagination.getByRole('button', { name: 'Next', exact: true });
+  const size = page.getByLabel('Items per page');
+  await expect(size.locator('option')).toHaveText(['100', '500', '1000']);
+  await expect(size).toHaveValue('100');
+  await expect(rows).toHaveCount(100);
+  await expect(rows.first()).toContainText('PAGE-1001');
+  await expect(pagination).toContainText('1–100 of 1001 issues');
+  await expect(page.locator('.toolbar-left')).toContainText('101 complete');
+  await expect(previous).toBeDisabled();
+  await next.click();
+  await expect(rows.first()).toContainText('PAGE-901');
+  await expect(pagination).toContainText('101–200 of 1001 issues');
+  await previous.click();
+  await expect(rows.first()).toContainText('PAGE-1001');
+  await size.selectOption('500');
+  await expect(rows).toHaveCount(500);
+  await expect(pagination).toContainText('Page 1 of 3');
+  await size.selectOption('1000');
+  await expect(rows).toHaveCount(1000);
+  await next.click();
+  await expect(rows).toHaveCount(1);
+  await expect(next).toBeDisabled();
+  await page.getByRole('link', { name: 'Needle 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to issues' }).click();
+  await expect(pagination).toContainText('Page 2 of 2');
+  await expect(rows).toHaveCount(1);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('link', { name: 'Needle 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Delete issue', exact: true }).click();
+  await expect(pagination).toContainText('Page 1 of 1');
+  await expect(rows).toHaveCount(1000);
+  await size.selectOption('100');
+  await expect(rows).toHaveCount(100);
+  await next.click();
+  await expect(pagination).toContainText('Page 2 of 10');
+  await page.getByRole('textbox', { name: 'Search issues' }).fill('Needle');
+  await expect(pagination).toContainText('1–100 of 100 issues');
+  await expect(pagination).toContainText('Page 1 of 1');
+  await page.getByRole('textbox', { name: 'Search issues' }).fill('');
+  await expect(pagination).toContainText('Page 1 of 10');
+  await next.click();
+  await expect(pagination).toContainText('Page 2 of 10');
+  await page.getByLabel('Filter by status').selectOption({ label: 'done' });
+  await expect(pagination).toContainText('Page 1 of 1');
+  await expect(pagination).toContainText('1–100 of 100 issues');
+  await page.getByRole('textbox', { name: 'Search issues' }).fill('absent');
+  await expect(rows).toHaveCount(0);
+  await expect(pagination).toContainText('0 issues');
+  await expect(next).toBeDisabled();
+  await expect(previous).toBeDisabled();
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('issue links: cross-project navigation, symmetric display, and unlinking', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Linked work', key: 'LINK' } })).json() as Project;

@@ -1,5 +1,5 @@
 import type pg from 'pg';
-import type { Attachment, CreateIssueInput, Issue, UpdateIssueInput, Project, StatusInput, IssueFilters } from '../shared/types.js';
+import type { Attachment, CreateIssueInput, Issue, UpdateIssueInput, Project, StatusInput, IssueFilters, IssuePagination, IssuePage } from '../shared/types.js';
 import { DEFAULT_STATUSES } from '../shared/types.js';
 import { HttpError, transaction } from './db.js';
 type Db = pg.Pool | pg.PoolClient;
@@ -56,7 +56,9 @@ export class Repository {
     const result = await this.pool.query('DELETE FROM projects WHERE project_id=$1', [id]);
     if (!result.rowCount) throw new HttpError(404, 'Project not found');
   }
-  async issues(projectId: number, filters: IssueFilters) {
+  async issues(projectId: number, filters: IssueFilters): Promise<Issue[]>;
+  async issues(projectId: number, filters: IssueFilters, pagination: IssuePagination): Promise<IssuePage>;
+  async issues(projectId: number, filters: IssueFilters, pagination?: IssuePagination): Promise<Issue[] | IssuePage> {
     await this.project(projectId);
     const values: unknown[] = [projectId];
     let where = ' WHERE i.project_id=$1';
@@ -65,7 +67,15 @@ export class Repository {
       values.push('%' + filters.search + '%'); const param = '$' + values.length;
       where += " AND (i.title ILIKE " + param + " OR p.key || '-' || i.issue_number ILIKE " + param + " OR i.assignee ILIKE " + param + " OR array_to_string(i.labels, ',') ILIKE " + param + ')';
     }
-    return (await this.pool.query<Issue>(issueSelect + where + ' ORDER BY i.issue_number DESC', values)).rows;
+    if (!pagination) return (await this.pool.query<Issue>(issueSelect + where + ' ORDER BY i.issue_number DESC', values)).rows;
+    const counts = (await this.pool.query<{ total: number; complete: number }>(
+      'SELECT count(*)::int AS total, count(*) FILTER (WHERE s.is_complete)::int AS complete ' +
+      'FROM issues i JOIN projects p USING (project_id) JOIN issue_statuses s ON s.status_id=i.status_id' + where, values,
+    )).rows[0]!;
+    const page = Math.min(pagination.page, Math.max(1, Math.ceil(counts.total / pagination.pageSize)));
+    values.push(pagination.pageSize, (page - 1) * pagination.pageSize);
+    const items = (await this.pool.query<Issue>(issueSelect + where + ' ORDER BY i.issue_number DESC LIMIT $' + (values.length - 1) + ' OFFSET $' + values.length, values)).rows;
+    return { items, ...counts, page, pageSize: pagination.pageSize };
   }
   async issue(ref: string | number, db: Db = this.pool) {
     const row = (await db.query<Issue>(issueSelect + ' WHERE ' + issueWhere(ref), [ref])).rows[0];

@@ -21,7 +21,7 @@ Guiding principles:
 - Create, list, edit, and permanently delete issues.
 - Use global issue types and required parent relationships for Sub-Tasks.
 - Link any two distinct issues with an undirected relationship, including across projects.
-- View issues in a table; search and filter by status.
+- View issues in a paginated table; search and filter by status.
 - Edit separate Markdown Description and Notes fields.
 - Configure statuses for each project.
 - Assign free-text assignees and string labels.
@@ -31,7 +31,7 @@ Guiding principles:
 
 ### Non-goals
 
-V1 does not include signup, a user-management UI, roles, comments, sprints, boards, notifications, audit history, soft deletes, issue moves between projects, workflow transition rules, pagination, or real-time collaboration.
+V1 does not include signup, a user-management UI, roles, comments, sprints, boards, notifications, audit history, soft deletes, issue moves between projects, workflow transition rules, or real-time collaboration.
 
 ## 2. Architecture
 
@@ -303,7 +303,7 @@ The API is rooted at `/api`. Request and response bodies are JSON except attachm
 | GET | `/projects/:id` | Read a project. |
 | PATCH | `/projects/:id` | Update title and/or replace status configuration. |
 | DELETE | `/projects/:id` | Permanently delete the project and dependent data. |
-| GET | `/projects/:id/issues` | List issues; optional `statusId` and `search` filters. |
+| GET | `/projects/:id/issues` | List issues; optional `statusId` and `search` filters; `pageSize` and `page` enable pagination. |
 | POST | `/projects/:id/issues` | Create an issue. |
 | GET | `/issues/:id-or-key` | Read issue details and attachment metadata. |
 | PATCH | `/issues/:id-or-key` | Update issue fields. |
@@ -335,7 +335,7 @@ Issue creation accepts:
 
 Missing optional fields receive their defaults. `issueNumber` and `createdAt` are accepted only on creation. Patches cannot renumber an issue or override its creation timestamp, but may supply `updatedAt` to override the update timestamp; otherwise it advances to database time. A timestamp-only patch is valid; `resolutionDate: null` clears the resolution timestamp. Patches accept a non-empty subset of editable fields; omitted fields are unchanged. Empty strings clear Description, Notes, or assignee, and `[]` clears labels. Unknown project/issue mutation fields are rejected rather than silently persisted.
 
-Issue responses include `issueType`, nullable `parentIssueId` and `resolutionDate`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number and return all matching issues. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
+Issue responses include `issueType`, nullable `parentIssueId` and `resolutionDate`, `linkedIssues`, the current status object and attachment metadata, not binary content. Link endpoints accept IDs or keys for either issue, return `204`, and reject self-links with `400` or missing issues with `404`. Listings are ordered by descending issue number. Without `pageSize`, they return all matching issues for compatibility with the CLI and parent selectors. Supplying `pageSize` (100, 500, or 1000) enables server-side pagination; `page` is a positive integer defaulting to 1. Paginated responses are `{ items, total, complete, page, pageSize }`, where counts cover all matching issues and out-of-range pages are clamped to the last page (page 1 for empty results). SQL applies LIMIT/OFFSET before returning issue details. Search uses case-insensitive SQL pattern matching over issue key, title, assignee, and labels; it is not full-text search and does not search Description or Notes.
 
 Downloads use `Content-Disposition: attachment`, `application/octet-stream`, and `Cache-Control: no-store`. Uploaded MIME metadata is retained but does not cause files to be served as executable inline content.
 
@@ -366,7 +366,7 @@ Its main surfaces are:
 
 - **Login:** username/password form; current session checked on initial load.
 - **Project sidebar:** project selection and creation.
-- **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts.
+- **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts. Pagination defaults to 100 items, with 500 and 1000 options, Previous/Next controls, and matching issue counts. Project, search, status, and page-size changes reset to page 1; returning from issue details preserves the current page. Deletions and status changes clamp pages when the result set shrinks.
 - **Issue detail editor:** explicit save for title, type, parent, Description, Notes, status, labels, assignee, and resolution date (shown/edited in local time, including milliseconds). Parent selection includes issues across projects.
 - **Markdown fields:** independent Write/Preview controls using `react-markdown` and `remark-gfm`; raw HTML is not rendered.
 - **Linked issues section:** enter an issue key or ID to link it, navigate to linked issues, or unlink from either endpoint. Links persist immediately, independently of unsaved editor fields, and are available after issue creation.
@@ -487,7 +487,7 @@ Install Chromium once with `npx playwright install chromium`. Browser test failu
 | Immutable project keys | Stable issue references while the project exists. | Changing an abbreviation is not supported. |
 | Ordered, unrestricted statuses | Flexible work tracking with no workflow engine. | No transition rules or automatic actions. |
 | Per-project locks | Simple numbering and status-edit coordination. | Writes within a busy project can serialize. |
-| No pagination or live updates | Thin clients and a small API surface. | Large issue lists and multi-user freshness are limited. |
+| Optional offset pagination; no live updates | Bounded web list responses while preserving unpaginated CLI/selector calls. | Deep offsets and full issue payloads still cost more; freshness requires refresh. |
 | Last-write-wins | No version/conflict UI to maintain. | Concurrent edits can overwrite each other. |
 
-Add complexity only when real usage justifies it. Likely next steps, if needed, are pagination with smaller list responses, optimistic concurrency, and improved user/session administration. Roles, workflow machinery, and moving files out of Postgres should require explicit product decisions rather than being introduced by default.
+Add complexity only when real usage justifies it. Likely next steps, if needed, are smaller list responses, optimistic concurrency, and improved user/session administration. Roles, workflow machinery, and moving files out of Postgres should require explicit product decisions rather than being introduced by default.

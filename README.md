@@ -9,7 +9,7 @@ For architecture, data models, API contracts, authentication details, testing st
 - Projects and issues with keys such as `WEB-123`.
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Undirected issue links, including across projects, visible from either issue.
-- Searchable issue table, status filters, and inline status changes.
+- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, and inline status changes.
 - Markdown Description and Notes with previews, labels, free-text assignees, and an optional resolution date.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
 - Multi-user login; every authenticated user has full access.
