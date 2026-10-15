@@ -183,6 +183,7 @@ export class Repository {
       await db.query('SELECT project_id FROM projects WHERE project_id=$1 FOR UPDATE', [initial.projectId]);
       const current = await this.issue(ref, db);
       const priority = current.priority + delta;
+      if (priority < 0) return current;
       const checkRange = (value: number) => {
         if (value < -2147483648 || value > 2147483647) throw new HttpError(409, 'Priority limit reached');
       };
@@ -201,6 +202,7 @@ export class Repository {
       const affected = [current.issueId];
       // Displace conflicts opposite to the move, stopping at the first free value.
       for (let cursor = priority; occupied.has(cursor); cursor -= delta) {
+        if (cursor - delta < 0) return current;
         checkRange(cursor - delta);
         affected.push(...occupied.get(cursor)!);
       }

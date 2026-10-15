@@ -204,12 +204,22 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.deepEqual(await priorities(first, selected, tie, third, distant), [2, 1, 3, 4, 10]);
     assert.deepEqual(await priorities(later, unrelated), [1, 1]);
     await api.adjustIssuePriority(selected.issueId, -1);
-    await api.adjustIssuePriority(selected.issueId, -1);
-    assert.equal((await api.issue(selected.issueId)).priority, -1);
+    const atZero = await api.issue(selected.issueId);
+    assert.equal(atZero.priority, 0);
+    assert.deepEqual(await api.adjustIssuePriority(selected.issueId, -1), atZero);
 
-    await api.updateIssue(selected.issueId, { priority: -2147483648 });
-    await assert.rejects(api.adjustIssuePriority(selected.issueId, -1), failure(409));
-    assert.equal((await api.issue(selected.issueId)).priority, -2147483648);
+    // Lowering priority must not displace a hidden conflict below zero either.
+    const floor = await api.createIssue(p.projectId, { title: 'At zero', priority: 0 });
+    await api.updateIssue(tie.issueId, { priority: 1 });
+    assert.deepEqual(await api.adjustIssuePriority(selected.issueId, 1), atZero);
+    assert.deepEqual(await priorities(first, selected, tie, third, floor), [2, 0, 1, 4, 0]);
+    await api.deleteIssue(floor.issueId);
+    await api.adjustIssuePriority(selected.issueId, 1);
+    assert.deepEqual(await priorities(selected, tie), [1, 0]);
+
+    await api.updateIssue(selected.issueId, { priority: 2147483647 });
+    await assert.rejects(api.adjustIssuePriority(selected.issueId, 1), failure(409));
+    assert.equal((await api.issue(selected.issueId)).priority, 2147483647);
     await api.deleteProject(p.projectId);
     await api.deleteProject(other.projectId);
   });

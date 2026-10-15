@@ -268,7 +268,7 @@ Parent graph changes take a schema-scoped transaction advisory lock before locki
 
 ### Concurrent editing
 
-Priority adjustments lock the project row, re-read the selected issue, and update it and all displaced issues atomically, advancing their update timestamps. They serialize with issue creation and ordinary updates. Moving either the selected issue or a displaced issue outside the signed 32-bit range returns `409` without changing any priorities.
+Priority adjustments lock the project row, re-read the selected issue, and update it and all displaced issues atomically, advancing their update timestamps. They serialize with issue creation and ordinary updates. If the selected issue or any displaced issue would receive a negative priority, the adjustment is a no-op: it returns the unchanged selected issue without updating priorities or timestamps. Exceeding the signed 32-bit maximum returns `409` without changing any priorities. Ordinary create/update operations still allow negative priorities.
 
 There are no revision numbers, ETags, or optimistic-concurrency checks. Patches update only supplied fields, but overlapping edits are last-write-wins. The web issue editor submits all editable fields when saving, so simultaneous editor sessions can overwrite each other’s changes. Project status edits replace the list and have the same last-write-wins limitation after transaction serialization.
 

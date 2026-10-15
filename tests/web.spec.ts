@@ -640,6 +640,17 @@ test('Shift+K/J adjust the selected priority, retain selection, and include hidd
   await expect(priorityOf(middle)).toHaveText('1');
   await expect(selected).toHaveAttribute('aria-current', 'true');
   expect((await (await page.request.get(url + '/api/issues/' + first.issueId)).json()).priority).toBe(2);
+  await page.keyboard.press('Shift+K');
+  await expect(priorityOf(middle)).toHaveText('0');
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  const noChange = page.waitForResponse(response => response.url().endsWith('/issues/' + middle.issueId + '/priority') && response.request().method() === 'POST');
+  await page.keyboard.press('Shift+K');
+  expect((await (await noChange).json()).priority).toBe(0);
+  await expect(priorityOf(middle)).toHaveText('0');
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await page.keyboard.press('Shift+J');
+  await expect(priorityOf(middle)).toHaveText('1');
   await page.reload();
   await expect(priorityOf(middle)).toHaveText('1');
   await page.request.delete(url + '/api/projects/' + project.projectId);

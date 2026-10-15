@@ -120,7 +120,7 @@ issctl project delete WEB --yes
 issctl logout
 ```
 
-`--priority` sets an integer ordering value (default `0`; lower comes first). Status sorting uses priority only within each status, with descending issue number breaking ties. Sub-Tasks are grouped beneath visible parents only when they share a status.
+`--priority` sets an integer ordering value (default `0`; lower comes first). The web’s Shift+K/J shortcuts never move the selected issue or a shifted conflict below `0`. Status sorting uses priority only within each status, with descending issue number breaking ties. Sub-Tasks are grouped beneath visible parents only when they share a status.
 
 `--resolution-date` sets a resolution timestamp on create/update; use an empty string to clear. Timestamps use ISO 8601 with a timezone, e.g. `2024-05-20T17:00:00Z`.
 
