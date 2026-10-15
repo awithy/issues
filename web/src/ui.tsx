@@ -3,15 +3,15 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 export const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 export function ErrorNotice({ error }: { error: string }) { return error ? <div className="error" role="alert">{error}</div> : null; }
-export function Modal({ title, children, onClose, className }: { title: string; children: ReactNode; onClose: () => void; className?: string }) {
+export function Modal({ title, children, onClose, className, busy = false }: { title: string; children: ReactNode; onClose: () => void; className?: string; busy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const dialog = ref.current!; dialog.showModal();
     return () => dialog.close();
   }, []);
-  function close() { ref.current?.close(); onClose(); }
+  function close() { if (busy) return; ref.current?.close(); onClose(); }
   return <dialog ref={ref} className={className} aria-label={title} onCancel={event => { event.preventDefault(); close(); }}>
-    <div className="modal-heading"><h2>{title}</h2><button type="button" className="ghost" aria-label="Close dialog" onClick={close}>✕</button></div>
+    <div className="modal-heading"><h2>{title}</h2><button type="button" className="ghost" aria-label="Close dialog" disabled={busy} onClick={close}>✕</button></div>
     {children}
   </dialog>;
 }

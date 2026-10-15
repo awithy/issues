@@ -207,6 +207,96 @@ test('image attachments: scaled previews, full-size dialog, reload, and deletion
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('issue row bulk-adds sub-tasks with a design status and supports a single nested sub-task', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Bulk sub-tasks', key: 'BULK' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const parent = await (await page.request.post(endpoint, { data: { title: 'Parent task', issueType: 'Task' } })).json() as Issue;
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const addButton = page.getByRole('button', { name: 'Add sub-tasks to ' + parent.issueKey, exact: true });
+  await expect(page.locator('.issues-table tbody tr').first().locator('td').last().getByRole('button')).toHaveAccessibleName('Add sub-tasks to ' + parent.issueKey);
+  await expect(addButton.getByRole('img', { name: 'Sub-Task', exact: true })).toBeVisible();
+  await addButton.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toContainText('Parent task');
+  await expect(dialog.getByRole('button', { name: 'Create', exact: false })).toBeDisabled();
+  await dialog.getByRole('textbox', { name: 'Sub-task titles' }).fill('Canceled task');
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await (await page.request.get(endpoint)).json()).toHaveLength(1);
+
+  // Both the stock workflow and customized "In Design" workflows choose the design status.
+  for (const statusTitle of ['design', 'In Design']) {
+    if (statusTitle === 'In Design') {
+      const response = await page.request.patch(url + '/api/projects/' + project.projectId, { data: {
+        issueStatuses: project.issueStatuses.map(status => ({ statusId: status.statusId, title: status.title === 'design' ? statusTitle : status.title, isComplete: status.isComplete })),
+      } });
+      expect(response.ok()).toBeTruthy();
+      await page.reload();
+    }
+    await addButton.click();
+    await expect(dialog.getByLabel('Sub-task status').locator('option:checked')).toHaveText(statusTitle);
+    await dialog.getByRole('textbox', { name: 'Sub-task titles' }).fill(`  ${statusTitle} layout  \n\n  \n${statusTitle} component\n`);
+    await dialog.getByRole('button', { name: 'Create 2 sub-tasks', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    for (const title of [statusTitle + ' layout', statusTitle + ' component']) {
+      const row = page.locator('.issues-table tbody tr').filter({ has: page.getByRole('link', { name: title, exact: true }) });
+      await expect(row).toBeVisible();
+      await expect(row.locator('td').nth(0)).toHaveCSS('padding-inline-start', '42px');
+      await expect(row.locator('select option:checked')).toHaveText(statusTitle);
+    }
+  }
+  let issues = await (await page.request.get(endpoint)).json() as Issue[];
+  expect(issues).toHaveLength(5);
+  for (const child of issues.filter(issue => issue.issueId !== parent.issueId)) {
+    expect(child.issueType).toBe('Sub-Task');
+    expect(child.parentIssueId).toBe(parent.issueId);
+    expect(child.status.statusId).toBe(project.issueStatuses[1]!.statusId);
+  }
+  const child = issues.find(issue => issue.title === 'In Design layout')!;
+  await page.getByRole('button', { name: 'Add sub-tasks to ' + child.issueKey, exact: true }).click();
+  await dialog.getByRole('textbox', { name: 'Sub-task titles' }).fill('Nested sub-task');
+  await dialog.getByRole('button', { name: 'Create 1 sub-task', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Nested sub-task', exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole('link', { name: 'Nested sub-task', exact: true })).toBeVisible();
+  issues = await (await page.request.get(endpoint)).json() as Issue[];
+  expect(issues.find(issue => issue.title === 'Nested sub-task')!.parentIssueId).toBe(child.issueId);
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
+test('bulk sub-task creation validates titles and retains only unsaved titles after a failure', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Retry sub-tasks', key: 'RETRY' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const parent = await (await page.request.post(endpoint, { data: { title: 'Parent' } })).json() as Issue;
+  await page.goto(url + '/#/projects/' + project.projectId);
+  await page.getByRole('button', { name: 'Add sub-tasks to ' + parent.issueKey, exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  const titles = dialog.getByRole('textbox', { name: 'Sub-task titles' });
+  await titles.fill('Valid title\n' + 'x'.repeat(301));
+  await dialog.getByRole('button', { name: 'Create 2 sub-tasks', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('300 characters or fewer');
+  expect(await (await page.request.get(endpoint)).json()).toHaveLength(1);
+
+  let requests = 0;
+  await page.route(endpoint, async route => {
+    if (route.request().method() === 'POST' && ++requests === 2) {
+      await route.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Please retry.' }) });
+    } else await route.continue();
+  });
+  await titles.fill('First child\nSecond child\nThird child');
+  await dialog.getByRole('button', { name: 'Create 3 sub-tasks', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('1 sub-task(s) created. Please retry.');
+  await expect(titles).toHaveValue('Second child\nThird child');
+  await dialog.getByRole('button', { name: 'Create 2 sub-tasks', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('.issues-table tbody tr')).toHaveCount(4);
+  const issues = await (await page.request.get(endpoint)).json() as Issue[];
+  expect(issues.map(issue => issue.title).sort()).toEqual(['Parent', 'First child', 'Second child', 'Third child'].sort());
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('Sub-Tasks are grouped and indented under visible parents', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Hierarchical work', key: 'TREE' } })).json() as Project;

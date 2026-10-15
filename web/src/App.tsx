@@ -3,6 +3,7 @@ import { ApiClient, ApiError } from '../../src/shared/client';
 import { ISSUE_PAGE_SIZES, type IssuePageSize, type IssueSort, type IssueSortColumn, type Issue, type Project, type ProjectView, type ViewInput } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
+import { AddSubTasks } from './AddSubTasks';
 import { IssueTypeIcon } from './IssueTypeIcon';
 import { ProjectSettings } from './ProjectSettings';
 import { ViewSettings } from './ViewSettings';
@@ -41,6 +42,7 @@ export function App() {
   const [revision, setRevision] = useState(0);
   const [changing, setChanging] = useState<number>();
   const [createProject, setCreateProject] = useState(false);
+  const [subTaskParent, setSubTaskParent] = useState<Issue>();
   const [settings, setSettings] = useState(false);
   const [viewEditor, setViewEditor] = useState<{ projectId: number; view?: ProjectView; initialView?: ViewInput }>();
   const project = projects.find(p => p.projectId === route.projectId);
@@ -115,7 +117,7 @@ export function App() {
             </div>
           </div>
           {labelFilters.length > 0 && <div className="label-filters" role="group" aria-label="Active label filters"><span className="muted small">Labels (all):</span>{labelFilters.map(label => <button className="label" key={label} aria-label={'Remove label filter ' + label} onClick={() => { setLabelFilters(previous => previous.filter(value => value !== label)); setPage(1); }}>{label}<span aria-hidden="true">×</span></button>)}</div>}
-          <div className="table-wrap" ref={tableRef} aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
+          <div className="table-wrap" ref={tableRef} aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th><th scope="col" aria-label="Actions" /></tr></thead>
             <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
               <td><IssueTypeIcon type={issue.issueType} /></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
@@ -126,6 +128,7 @@ export function App() {
               }}>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select></td>
               <td><span className={!issue.assignee ? 'muted' : ''}>{issue.assignee || 'Unassigned'}</span></td>
               <td><div className="labels">{issue.labels.map((label, index) => <button className="label" key={index} aria-label={'Filter by label ' + label} aria-pressed={labelFilters.includes(label)} onClick={() => { setLabelFilters(previous => previous.includes(label) ? previous : [...previous, label]); setPage(1); }}>{label}</button>)}</div></td>
+              <td className="issue-actions"><button className="ghost" aria-label={'Add sub-tasks to ' + issue.issueKey} title="Add sub-tasks" onClick={() => setSubTaskParent(issue)}><IssueTypeIcon type="Sub-Task" /></button></td>
             </tr>)}</tbody></table>
             {!issues.length && <div className="empty-state"><span className="empty-icon">☷</span><h3>{loading ? 'Loading issues…' : view || search || statusFilter || labelFilters.length ? 'No matching issues' : 'A fresh start'}</h3>
               {!loading && <><p>{view || search || statusFilter || labelFilters.length ? 'Try different search, status, or label filters, or edit the view filters.' : 'Create your first issue and give the work a place to live.'}</p>{!view && !search && !statusFilter && !labelFilters.length && <button className="secondary" onClick={() => navigate(project.projectId, 'new')}>Create first issue</button>}</>}
@@ -145,6 +148,7 @@ export function App() {
           <p className="table-hint">Click an issue to edit details. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Sub-Tasks are grouped beneath parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
+    {subTaskParent && project && <AddSubTasks api={api} project={project} parent={subTaskParent} onClose={() => setSubTaskParent(undefined)} onCreated={() => setRevision(r => r + 1)} />}
     {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} initialView={viewEditor.initialView} onClose={() => setViewEditor(undefined)}
       onSaved={async saved => { await refreshProjects(); setRevision(r => r + 1); navigate(saved.projectId, undefined, saved.viewId); }}
       onDeleted={async () => { await refreshProjects(); setRevision(r => r + 1); navigate(editorProject.projectId); }} />}
