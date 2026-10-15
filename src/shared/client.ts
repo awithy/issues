@@ -34,6 +34,8 @@ export class ApiClient {
     if (filters.statusId) query.set('statusId', String(filters.statusId));
     if (filters.search) query.set('search', filters.search);
     if (filters.viewId !== undefined) query.set('viewId', String(filters.viewId));
+    if (filters.sortBy) query.set('sortBy', filters.sortBy);
+    if (filters.sortDirection) query.set('sortDirection', filters.sortDirection);
     return query;
   }
   issues(projectId: number, filters: IssueFilters = {}) {

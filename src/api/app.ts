@@ -13,7 +13,7 @@ import { z } from 'zod';
 import { Repository } from './repository.js';
 import { HttpError } from './db.js';
 import type { User } from './users.js';
-import { ISSUE_TYPES, ISSUE_PAGE_SIZES } from '../shared/types.js';
+import { ISSUE_TYPES, ISSUE_PAGE_SIZES, ISSUE_SORT_COLUMNS } from '../shared/types.js';
 
 const id = z.coerce.number().int().positive().max(2147483647);
 const title = z.string().trim().min(1).max(300);
@@ -101,6 +101,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   router.get('/projects/:id/issues', async (req, res) => {
     const { page, pageSize, ...filters } = z.object({
       statusId: id.optional(), search: z.string().max(300).optional(), viewId: id.optional(),
+      sortBy: z.enum(ISSUE_SORT_COLUMNS).optional(), sortDirection: z.enum(['asc', 'desc']).optional(),
       page: id.default(1),
       pageSize: z.coerce.number().pipe(z.union(ISSUE_PAGE_SIZES.map(size => z.literal(size)))).optional(),
     }).parse(req.query);

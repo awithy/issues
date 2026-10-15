@@ -98,14 +98,19 @@ export class Repository {
       values.push('%' + filters.search + '%'); const param = '$' + values.length;
       where += " AND (i.title ILIKE " + param + " OR p.key || '-' || i.issue_number ILIKE " + param + " OR i.assignee ILIKE " + param + " OR array_to_string(i.labels, ',') ILIKE " + param + ')';
     }
-    if (!pagination) return (await this.pool.query<Issue>(issueSelect + where + ' ORDER BY i.issue_number DESC', values)).rows;
+    // Only allowlisted expressions and directions are interpolated into SQL.
+    const sortColumns = { key: 'i.issue_number', type: 'lower(i.issue_type)', status: 's.position', assignee: "NULLIF(lower(i.assignee), '')" };
+    const sortBy = filters.sortBy ?? 'key';
+    const direction = (filters.sortDirection ?? (filters.sortBy ? 'asc' : 'desc')) === 'asc' ? 'ASC' : 'DESC';
+    const orderBy = ' ORDER BY ' + sortColumns[sortBy] + ' ' + direction + ' NULLS LAST' + (sortBy === 'key' ? '' : ', i.issue_number DESC');
+    if (!pagination) return (await this.pool.query<Issue>(issueSelect + where + orderBy, values)).rows;
     const counts = (await this.pool.query<{ total: number; complete: number }>(
       'SELECT count(*)::int AS total, count(*) FILTER (WHERE s.is_complete)::int AS complete ' +
       'FROM issues i JOIN projects p USING (project_id) JOIN issue_statuses s ON s.status_id=i.status_id' + where, values,
     )).rows[0]!;
     const page = Math.min(pagination.page, Math.max(1, Math.ceil(counts.total / pagination.pageSize)));
     values.push(pagination.pageSize, (page - 1) * pagination.pageSize);
-    const items = (await this.pool.query<Issue>(issueSelect + where + ' ORDER BY i.issue_number DESC LIMIT $' + (values.length - 1) + ' OFFSET $' + values.length, values)).rows;
+    const items = (await this.pool.query<Issue>(issueSelect + where + orderBy + ' LIMIT $' + (values.length - 1) + ' OFFSET $' + values.length, values)).rows;
     return { items, ...counts, page, pageSize: pagination.pageSize };
   }
   async issue(ref: string | number, db: Db = this.pool) {

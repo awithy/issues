@@ -17,7 +17,10 @@ export interface IssueInput { title: string; issueType?: IssueType; parentIssueI
 export interface CreateIssueInput extends IssueInput { issueNumber?: number; createdAt?: string; updatedAt?: string }
 export interface UpdateIssueInput extends Partial<IssueInput> { updatedAt?: string }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }
-export interface IssueFilters { statusId?: number; search?: string; viewId?: number }
+export const ISSUE_SORT_COLUMNS = ['key', 'type', 'status', 'assignee'] as const;
+export type IssueSortColumn = typeof ISSUE_SORT_COLUMNS[number];
+export interface IssueSort { sortBy: IssueSortColumn; sortDirection: 'asc' | 'desc' }
+export interface IssueFilters extends Partial<IssueSort> { statusId?: number; search?: string; viewId?: number }
 export const ISSUE_PAGE_SIZES = [100, 500, 1000] as const;
 export type IssuePageSize = typeof ISSUE_PAGE_SIZES[number];
 export interface IssuePagination { page: number; pageSize: IssuePageSize }

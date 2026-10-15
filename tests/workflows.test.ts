@@ -99,6 +99,9 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.equal(first.items.at(-1)!.issueKey, 'PAGE-902');
     const second = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 });
     assert.equal(second.items[0]!.issueKey, 'PAGE-901');
+    const ascending = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, { sortBy: 'key', sortDirection: 'asc' });
+    assert.equal(ascending.items[0]!.issueKey, 'PAGE-101');
+    assert.equal(ascending.items.at(-1)!.issueKey, 'PAGE-200');
     for (const pageSize of [500, 1000] as const) {
       const result = await api.issuesPage(p.projectId, { page: 1, pageSize });
       assert.equal(result.items.length, pageSize); assert.equal(result.total, 1001);
@@ -114,6 +117,33 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.equal((await api.issues(p.projectId)).length, 1000); // Existing CLI/selector contract.
     await assert.rejects(api.request(`/projects/${p.projectId}/issues?pageSize=50`), failure(400));
     await assert.rejects(api.request(`/projects/${p.projectId}/issues?pageSize=100&page=0`), failure(400));
+    await api.deleteProject(p.projectId);
+  });
+  await t.test('issue sorting: both directions, numeric keys, workflow statuses, and stable ties', async () => {
+    const p = await api.createProject('Sorting', 'SORT');
+    const backlog = p.issueStatuses[0]!.statusId;
+    const design = p.issueStatuses[1]!.statusId;
+    const done = p.issueStatuses.find(s => s.title === 'done')!.statusId;
+    await api.createIssue(p.projectId, { title: 'Sort A', issueNumber: 2, issueType: 'Bug', assignee: 'Zed', statusId: done });
+    await api.createIssue(p.projectId, { title: 'Sort B', issueNumber: 10, issueType: 'Task', assignee: 'alice', statusId: backlog });
+    await api.createIssue(p.projectId, { title: 'Sort C', issueNumber: 11, issueType: 'Bug', assignee: 'ALICE', statusId: design });
+    await api.createIssue(p.projectId, { title: 'Sort D', issueNumber: 20, issueType: 'Issue', statusId: backlog });
+    const expected = {
+      key: { asc: [2, 10, 11, 20], desc: [20, 11, 10, 2] },
+      type: { asc: [11, 2, 20, 10], desc: [10, 20, 11, 2] },
+      status: { asc: [20, 10, 11, 2], desc: [2, 11, 20, 10] },
+      assignee: { asc: [11, 10, 2, 20], desc: [2, 11, 10, 20] },
+    };
+    for (const sortBy of ['key', 'type', 'status', 'assignee'] as const) {
+      for (const sortDirection of ['asc', 'desc'] as const) {
+        const result = await api.issuesPage(p.projectId, { page: 1, pageSize: 100 }, { sortBy, sortDirection, search: 'Sort' });
+        assert.deepEqual(result.items.map(i => i.issueKey), expected[sortBy][sortDirection].map(n => 'SORT-' + n));
+        assert.equal(result.total, 4); assert.equal(result.complete, 1);
+      }
+    }
+    assert.deepEqual((await api.issues(p.projectId, { sortBy: 'key', sortDirection: 'asc' })).map(i => i.issueKey), ['SORT-2', 'SORT-10', 'SORT-11', 'SORT-20']);
+    await assert.rejects(api.request(`/projects/${p.projectId}/issues?sortBy=title`), failure(400));
+    await assert.rejects(api.request(`/projects/${p.projectId}/issues?sortDirection=invalid`), failure(400));
     await api.deleteProject(p.projectId);
   });
   await t.test('shared saved views: combined filters, pagination, editing, project scope and deletion', async () => {
@@ -133,6 +163,8 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.deepEqual((await api.project(p.projectId)).views, [view]);
     assert.deepEqual((await api.projects()).find(project => project.projectId === p.projectId)!.views, [view]);
     assert.deepEqual((await bob.issues(p.projectId, { viewId: view.viewId })).map(i => i.issueId), [task.issueId, bug.issueId]);
+    const sortedView = await api.issuesPage(p.projectId, { page: 1, pageSize: 100 }, { viewId: view.viewId, sortBy: 'type', sortDirection: 'asc' });
+    assert.deepEqual(sortedView.items.map(i => i.issueId), [bug.issueId, task.issueId]);
     assert.deepEqual((await api.issues(p.projectId, { viewId: view.viewId, statusId: done, search: 'task' })).map(i => i.issueId), [task.issueId]);
     await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id,labels,issue_type)
       SELECT $1,n,'Matching bulk ' || n,$2,$3,'Bug' FROM generate_series(100,200) n`, [p.projectId, backlog, labels]);

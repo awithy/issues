@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ApiClient, ApiError } from '../../src/shared/client';
-import { ISSUE_PAGE_SIZES, type IssuePageSize, type Issue, type Project, type ProjectView } from '../../src/shared/types';
+import { ISSUE_PAGE_SIZES, type IssuePageSize, type IssueSort, type IssueSortColumn, type Issue, type Project, type ProjectView } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
 import { ProjectSettings } from './ProjectSettings';
@@ -21,6 +21,11 @@ export function App() {
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [page, setPage] = useState(1);
+  const [sort, setSort] = useState<IssueSort>({ sortBy: 'key', sortDirection: 'desc' });
+  function sortIssues(sortBy: IssueSortColumn) {
+    setSort(previous => ({ sortBy, sortDirection: previous.sortBy === sortBy && previous.sortDirection === 'asc' ? 'desc' : 'asc' }));
+    setPage(1);
+  }
   const [pageSize, setPageSize] = useState<IssuePageSize>(100);
   const [total, setTotal] = useState(0);
   const [complete, setComplete] = useState(0);
@@ -61,7 +66,7 @@ export function App() {
     if (!username || !project || viewMissing) { setIssues([]); setTotal(0); setComplete(0); return; }
     let active = true; setLoading(true);
     const timeout = setTimeout(() => {
-      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined, viewId: route.viewId })
+      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined, viewId: route.viewId, ...sort })
         .then(result => {
           if (!active) return;
           setIssues(result.items); setTotal(result.total); setComplete(result.complete); setPage(result.page);
@@ -69,7 +74,7 @@ export function App() {
         .finally(() => { if (active) setLoading(false); });
     }, 150);
     return () => { active = false; clearTimeout(timeout); };
-  }, [api, username, project?.projectId, route.issue, route.viewId, viewMissing, search, statusFilter, page, pageSize, revision]);
+  }, [api, username, project?.projectId, route.issue, route.viewId, viewMissing, search, statusFilter, page, pageSize, sort, revision]);
   if (checking) return <div className="loading-screen">Loading Issues…</div>;
   if (!username) return <Login api={api} initialError={error} onLogin={user => { setError(''); setUsername(user); }} />;
   return <div className="app-shell">
@@ -105,7 +110,7 @@ export function App() {
               <select aria-label="Filter by status" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }}><option value="">All statuses</option>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select>
             </div>
           </div>
-          <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><th>Key</th><th>Title</th><th>Type</th><th>Status</th><th>Assignee</th><th>Labels</th></tr></thead>
+          <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
             <tbody>{issues.map(issue => <tr key={issue.issueId}><td><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
               <td><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td>{issue.issueType}</td>
@@ -132,7 +137,7 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click an issue to edit details. Change its status right here.</p>
+          <p className="table-hint">Click an issue to edit details. Change its status right here. Click Key, Type, Status, or Assignee to sort.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} onClose={() => setViewEditor(undefined)}
@@ -142,6 +147,14 @@ export function App() {
     {settings && project && <ProjectSettings api={api} project={project} onClose={() => setSettings(false)} onSaved={() => { void refreshProjects().catch(error => setError(message(error))); setRevision(r => r + 1); }}
       onDeleted={() => { void refreshProjects().then(list => navigate(list[0]?.projectId)).catch(error => setError(message(error))); }} />}
   </div>;
+}
+function SortHeader({ column, title, sort, onSort }: { column: IssueSortColumn; title: string; sort: IssueSort; onSort: (column: IssueSortColumn) => void }) {
+  const active = sort.sortBy === column;
+  return <th scope="col" aria-sort={active ? sort.sortDirection === 'asc' ? 'ascending' : 'descending' : 'none'}>
+    <button className="sort-header" onClick={() => onSort(column)} aria-label={'Sort by ' + title} title={'Sort by ' + title + (active && sort.sortDirection === 'asc' ? ' descending' : ' ascending')}>
+      {title}<span aria-hidden="true">{active ? sort.sortDirection === 'asc' ? '↑' : '↓' : '↕'}</span>
+    </button>
+  </th>;
 }
 function Login({ api, initialError, onLogin }: { api: ApiClient; initialError: string; onLogin: (username: string) => void }) {
   const [username, setUsername] = useState(''); const [password, setPassword] = useState('');

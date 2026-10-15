@@ -173,7 +173,15 @@ test('issue pagination: sizes, navigation, filters, and shrinking results', asyn
   await next.click();
   await expect(rows.first()).toContainText('PAGE-901');
   await expect(pagination).toContainText('101–200 of 1001 issues');
-  await previous.click();
+  const keyHeader = page.getByRole('button', { name: 'Sort by Key', exact: true });
+  await keyHeader.click();
+  await expect(keyHeader.locator('..')).toHaveAttribute('aria-sort', 'ascending');
+  await expect(pagination).toContainText('Page 1 of 11');
+  await expect(rows.first().locator('.issue-key')).toHaveText('PAGE-1');
+  await next.click();
+  await expect(rows.first().locator('.issue-key')).toHaveText('PAGE-101');
+  await keyHeader.click();
+  await expect(keyHeader.locator('..')).toHaveAttribute('aria-sort', 'descending');
   await expect(rows.first()).toContainText('PAGE-1001');
   await size.selectOption('500');
   await expect(rows).toHaveCount(500);
@@ -211,6 +219,40 @@ test('issue pagination: sizes, navigation, filters, and shrinking results', asyn
   await expect(pagination).toContainText('0 issues');
   await expect(next).toBeDisabled();
   await expect(previous).toBeDisabled();
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
+test('issue sorting: all sortable headers, both directions, and returning from details', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Sortable work', key: 'SORT' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  await page.request.post(endpoint, { data: { title: 'Sort A', issueNumber: 2, issueType: 'Bug', assignee: 'Zed', statusId: project.issueStatuses[4]!.statusId } });
+  await page.request.post(endpoint, { data: { title: 'Sort B', issueNumber: 10, issueType: 'Task', assignee: 'alice' } });
+  await page.request.post(endpoint, { data: { title: 'Sort C', issueNumber: 11, issueType: 'Bug', assignee: 'ALICE', statusId: project.issueStatuses[1]!.statusId } });
+  await page.request.post(endpoint, { data: { title: 'Sort D', issueNumber: 20 } });
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const keys = page.locator('.issues-table tbody .issue-key');
+  await expect(keys).toHaveText(['SORT-20', 'SORT-11', 'SORT-10', 'SORT-2']);
+  const orders = [
+    { column: 'Key', asc: [2, 10, 11, 20], desc: [20, 11, 10, 2] },
+    { column: 'Type', asc: [11, 2, 20, 10], desc: [10, 20, 11, 2] },
+    { column: 'Status', asc: [20, 10, 11, 2], desc: [2, 11, 20, 10] },
+    { column: 'Assignee', asc: [11, 10, 2, 20], desc: [2, 11, 10, 20] },
+  ];
+  for (const { column, asc, desc } of orders) {
+    const button = page.getByRole('button', { name: 'Sort by ' + column, exact: true });
+    await button.click();
+    await expect(button.locator('..')).toHaveAttribute('aria-sort', 'ascending');
+    await expect(keys).toHaveText(asc.map(n => 'SORT-' + n));
+    await button.focus();
+    await page.keyboard.press('Enter');
+    await expect(button.locator('..')).toHaveAttribute('aria-sort', 'descending');
+    await expect(keys).toHaveText(desc.map(n => 'SORT-' + n));
+  }
+  await page.getByRole('link', { name: 'Sort A', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to issues' }).click();
+  await expect(page.getByRole('button', { name: 'Sort by Assignee', exact: true }).locator('..')).toHaveAttribute('aria-sort', 'descending');
+  await expect(keys).toHaveText(['SORT-2', 'SORT-11', 'SORT-10', 'SORT-20']);
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
