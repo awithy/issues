@@ -31,6 +31,15 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
   const [error, setError] = useState('');
   const [saved, setSaved] = useState(false);
   useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing || event.repeat || document.querySelector('dialog[open]')) return;
+      event.preventDefault();
+      onBack();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [onBack]);
+  useEffect(() => {
     if (!issueKey) return;
     let active = true;
     api.issue(issueKey).then(data => {
@@ -64,7 +73,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
     });
   }
   return <section className="issue-detail">
-    <button className="back-link" onClick={onBack}>← Back to issues</button>
+    <button className="back-link" onClick={onBack} aria-keyshortcuts="Escape" title="Back to issues (Esc)">← Back to issues</button>
     <div className="page-heading"><div><div className="eyebrow">{project.key} / {issueKey || 'NEW ISSUE'}</div><h1>{issueKey ? 'Issue details' : 'Create issue'}</h1></div>
       {issue && <button className="danger ghost" disabled={busy} onClick={() => {
         if (confirm('Permanently delete ' + issue.issueKey + ' and all its attachments? This cannot be undone.')) void run(async () => { await api.deleteIssue(issue.issueId); onDeleted(); });

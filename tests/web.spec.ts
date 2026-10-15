@@ -192,6 +192,7 @@ test('image attachments: scaled previews, full-size dialog, reload, and deletion
     if (filename === 'screenshot.png') await page.keyboard.press('Escape');
     else await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
     await expect(dialog).toHaveCount(0);
+    await expect(page.getByRole('heading', { name: 'Issue details', exact: true })).toBeVisible();
     await expect(gallery.getByRole('button', { name: 'Expand ' + filename, exact: true })).toBeFocused();
   }
   await page.reload();
@@ -313,6 +314,53 @@ test('issue pagination: sizes, navigation, filters, and shrinking results', asyn
   await expect(pagination).toContainText('0 issues');
   await expect(next).toBeDisabled();
   await expect(previous).toBeDisabled();
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
+test('returning from issue details restores the table scroll position', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Scrollable work', key: 'SCROLL' } })).json() as Project;
+  await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id)
+    SELECT $1,n,'Scrollable issue ' || n,$2 FROM generate_series(1,160) n`,
+  [project.projectId, project.issueStatuses[0]!.statusId]);
+  const view = await (await page.request.post(url + '/api/projects/' + project.projectId + '/views', { data: { title: 'Scrollable view' } })).json();
+  const projectUrl = url + '/#/projects/' + project.projectId;
+  for (const tableUrl of [projectUrl, projectUrl + '/views/' + view.viewId]) {
+    await page.goto(tableUrl);
+    const table = page.locator('.table-wrap');
+    const pagination = page.getByRole('navigation', { name: 'Issue pagination' });
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+    await expect(pagination).toContainText('Page 2 of 2');
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    const issueLink = page.locator('.issue-title').nth(35);
+
+    for (const back of ['button', 'browser', 'escape']) {
+      await issueLink.evaluate(element => element.scrollIntoView({ block: 'center' }));
+      await table.evaluate(element => { element.scrollLeft = 60; });
+      const position = await page.evaluate(() => new Promise<{ y: number; left: number }>(resolve => {
+        requestAnimationFrame(() => resolve({ y: window.scrollY, left: document.querySelector('.table-wrap')!.scrollLeft }));
+      }));
+      expect(position.y).toBeGreaterThan(1000);
+      await issueLink.click();
+      await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toBeVisible();
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+      // Detail-page scrolling must not overwrite the table's saved position.
+      await page.evaluate(() => window.scrollTo(0, 400));
+      if (back === 'button') await page.getByRole('button', { name: 'Back to issues' }).click();
+      else if (back === 'browser') await page.goBack();
+      else {
+        await page.getByRole('textbox', { name: 'Notes', exact: true }).focus();
+        await page.keyboard.press('Escape');
+      }
+      await expect(page).toHaveURL(tableUrl);
+      await expect(table).toHaveAttribute('aria-busy', 'false');
+      await expect(pagination).toContainText('Page 2 of 2');
+      await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(position.y);
+      await expect.poll(() => table.evaluate(element => element.scrollLeft)).toBe(position.left);
+      await expect(issueLink).toBeInViewport();
+    }
+  }
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 

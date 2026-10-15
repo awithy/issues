@@ -6,6 +6,7 @@ import { IssueDetail } from './IssueDetail';
 import { ProjectSettings } from './ProjectSettings';
 import { ViewSettings } from './ViewSettings';
 import { groupIssueRows } from './issueRows';
+import { useIssueTableScroll } from './useIssueTableScroll';
 function readRoute() {
   const match = location.hash.match(/^#\/projects\/(\d+)(?:\/views\/(\d+))?(?:\/issues\/([^/]+))?$/);
   return { projectId: match ? Number(match[1]) : undefined, viewId: match?.[2] ? Number(match[2]) : undefined, issue: match?.[3] };
@@ -43,6 +44,7 @@ export function App() {
   const project = projects.find(p => p.projectId === route.projectId);
   const view = project?.views.find(v => v.viewId === route.viewId);
   const viewMissing = !!route.viewId && !!project && !view;
+  const tableRef = useIssueTableScroll(username && project && !viewMissing ? projectPath(project.projectId, route.viewId) : undefined, route.issue);
   const editorProject = projects.find(p => p.projectId === viewEditor?.projectId);
   useEffect(() => {
     const listener = () => { setRoute(readRoute()); setError(''); };
@@ -111,7 +113,7 @@ export function App() {
               <select aria-label="Filter by status" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }}><option value="">All statuses</option>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select>
             </div>
           </div>
-          <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
+          <div className="table-wrap" ref={tableRef} aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
             <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td>{issue.issueType}</td>
