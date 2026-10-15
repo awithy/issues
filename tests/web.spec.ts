@@ -766,6 +766,67 @@ test('S opens a status picker with arrow navigation, Enter to save, and Escape t
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('saving a status with S selects the next displayed issue before reordering or filtering', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Advance selection', key: 'NEXT' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const first = await (await page.request.post(endpoint, { data: { title: 'First task', issueType: 'Task', priority: 0 } })).json() as Issue;
+  const next = await (await page.request.post(endpoint, { data: { title: 'Next task', issueType: 'Task', priority: 1 } })).json() as Issue;
+  const backlog = project.issueStatuses[0]!.statusId;
+  const design = project.issueStatuses[1]!.statusId;
+  const view = await (await page.request.post(url + '/api/projects/' + project.projectId + '/views', {
+    data: { title: 'Backlog tasks', filters: { statusIds: [backlog] } },
+  })).json();
+  const projectUrl = url + '/#/projects/' + project.projectId;
+  const table = page.locator('.table-wrap');
+  const rows = page.locator('.issues-table tbody tr');
+  const selected = page.locator('.issues-table tbody tr[aria-current="true"]');
+  const dialog = page.getByRole('dialog');
+  const picker = dialog.getByRole('listbox', { name: 'Choose status' });
+  for (const tableUrl of [projectUrl, projectUrl + '/views/' + view.viewId]) {
+    for (const [priority, issue] of [first, next].entries()) {
+      await page.request.patch(url + '/api/issues/' + issue.issueId, { data: { statusId: backlog } });
+      await page.request.patch(url + '/api/issues/' + issue.issueId, { data: { priority } });
+    }
+    await page.goto(tableUrl);
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await expect(rows.locator('.issue-key')).toHaveText([first.issueKey, next.issueKey]);
+    await rows.first().locator('td').nth(4).click();
+    await expect(selected.locator('.issue-key')).toHaveText(first.issueKey);
+    await page.keyboard.press('s');
+    await picker.selectOption(String(design));
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await expect(selected.locator('.issue-key')).toHaveText(next.issueKey);
+    await expect(selected).toBeFocused();
+    await expect(rows.locator('.issue-key')).toHaveText(tableUrl === projectUrl ? [next.issueKey, first.issueKey] : [next.issueKey]);
+
+    // Cancelling and saving the unchanged status must not advance selection.
+    await page.keyboard.press('s');
+    await picker.selectOption(String(design));
+    await page.keyboard.press('Escape');
+    await expect(selected.locator('.issue-key')).toHaveText(next.issueKey);
+    await page.keyboard.press('s');
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await expect(selected.locator('.issue-key')).toHaveText(next.issueKey);
+    await expect(selected).toBeFocused();
+
+    if (tableUrl === projectUrl) {
+      // With no following row, keep the current issue selected after it moves.
+      await rows.last().locator('td').nth(4).click();
+      await page.keyboard.press('s');
+      await picker.selectOption(String(project.issueStatuses[2]!.statusId));
+      await page.keyboard.press('Enter');
+      await expect(table).toHaveAttribute('aria-busy', 'false');
+      await expect(selected.locator('.issue-key')).toHaveText(first.issueKey);
+      await expect(selected).toBeFocused();
+    }
+  }
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('clicking issue rows selects them for keyboard navigation and preserves links and controls', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Click selection', key: 'CLICK' } })).json() as Project;

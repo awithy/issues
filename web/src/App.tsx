@@ -44,6 +44,7 @@ export function App() {
   const [revision, setRevision] = useState(0);
   const [changing, setChanging] = useState<number>();
   const [statusPickerIssue, setStatusPickerIssue] = useState<Issue>();
+  const [statusPickerNextIssueId, setStatusPickerNextIssueId] = useState<number>();
   async function changeIssueStatus(issue: Issue, statusId: number) {
     setChanging(issue.issueId); setError('');
     try {
@@ -105,6 +106,14 @@ export function App() {
     }, 150);
     return () => { active = false; clearTimeout(timeout); };
   }, [api, username, project?.projectId, route.issue, route.viewId, viewMissing, search, statusFilter, labelFilters, page, pageSize, sort, revision]);
+  useEffect(() => {
+    if (statusPickerIssue || loading || statusPickerNextIssueId === undefined) return;
+    const row = tableRef.current?.querySelector<HTMLTableRowElement>(`tr[data-issue-id="${statusPickerNextIssueId}"]`);
+    setSelectedIssueId(row ? statusPickerNextIssueId : undefined);
+    row?.focus({ preventScroll: true });
+    row?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    setStatusPickerNextIssueId(undefined);
+  }, [statusPickerIssue, loading, statusPickerNextIssueId, tableRef, setSelectedIssueId]);
   if (checking) return <div className="loading-screen">Loading Issues…</div>;
   if (!username) return <Login api={api} initialError={error} onLogin={user => { setError(''); setUsername(user); }} />;
   return <div className="app-shell">
@@ -174,7 +183,14 @@ export function App() {
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {statusPickerIssue && project && <IssueStatusPicker issue={statusPickerIssue} statuses={project.issueStatuses}
-      onSave={statusId => changeIssueStatus(statusPickerIssue, statusId)} onClose={() => setStatusPickerIssue(undefined)} />}
+      onSave={async statusId => {
+        const index = issueRows.findIndex(({ issue }) => issue.issueId === statusPickerIssue.issueId);
+        const nextIssueId = issueRows[index + 1]?.issue.issueId ?? statusPickerIssue.issueId;
+        await changeIssueStatus(statusPickerIssue, statusId);
+        // Wait for the refreshed order and dialog closure before moving focus.
+        setLoading(true);
+        setStatusPickerNextIssueId(nextIssueId);
+      }} onClose={() => setStatusPickerIssue(undefined)} />}
     {subTaskParent && project && <AddSubTasks api={api} project={project} parent={subTaskParent} onClose={() => setSubTaskParent(undefined)} onCreated={() => setRevision(r => r + 1)} />}
     {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} initialView={viewEditor.initialView} onClose={() => setViewEditor(undefined)}
       onSaved={async saved => { await refreshProjects(); setRevision(r => r + 1); navigate(saved.projectId, undefined, saved.viewId); }}
