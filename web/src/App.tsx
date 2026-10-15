@@ -5,6 +5,7 @@ import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
 import { ProjectSettings } from './ProjectSettings';
 import { ViewSettings } from './ViewSettings';
+import { groupIssueRows } from './issueRows';
 function readRoute() {
   const match = location.hash.match(/^#\/projects\/(\d+)(?:\/views\/(\d+))?(?:\/issues\/([^/]+))?$/);
   return { projectId: match ? Number(match[1]) : undefined, viewId: match?.[2] ? Number(match[2]) : undefined, issue: match?.[3] };
@@ -20,6 +21,7 @@ export function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [issues, setIssues] = useState<Issue[]>([]);
+  const issueRows = useMemo(() => groupIssueRows(issues), [issues]);
   const [page, setPage] = useState(1);
   const [sort, setSort] = useState<IssueSort>({ sortBy: 'key', sortDirection: 'desc' });
   function sortIssues(sortBy: IssueSortColumn) {
@@ -111,8 +113,8 @@ export function App() {
             </div>
           </div>
           <div className="table-wrap" aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
-            <tbody>{issues.map(issue => <tr key={issue.issueId}><td><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
-              <td><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
+            <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
+              <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td>{issue.issueType}</td>
               <td><select className={'status-pill ' + (issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
                 const statusId = Number(event.target.value); setChanging(issue.issueId); setError('');
@@ -137,7 +139,7 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click an issue to edit details. Change its status right here. Click Key, Type, Status, or Assignee to sort.</p>
+          <p className="table-hint">Click an issue to edit details. Change its status right here. Click Key, Type, Status, or Assignee to sort. Sub-Tasks are grouped beneath parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} onClose={() => setViewEditor(undefined)}

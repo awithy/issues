@@ -150,6 +150,44 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   expect(errors).toEqual([]);
 });
 
+test('Sub-Tasks are grouped and indented under visible parents', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Hierarchical work', key: 'TREE' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  async function create(title: string, parent?: Issue) {
+    const response = await page.request.post(endpoint, { data: {
+      title, issueType: parent ? 'Sub-Task' : 'Task', parentIssueId: parent?.issueId,
+    } });
+    expect(response.ok()).toBeTruthy();
+    return await response.json() as Issue;
+  }
+  const parentA = await create('Parent A');
+  const childA = await create('Child A', parentA);
+  const unrelated = await create('Unrelated task');
+  const parentB = await create('Parent B');
+  const childB = await create('Child B', parentA);
+  const childC = await create('Child C', parentB);
+  const nested = await create('Nested child', childA);
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const keys = page.locator('.issues-table tbody .issue-key');
+  await expect(keys).toHaveText([parentB, childC, unrelated, parentA, childB, childA, nested].map(issue => issue.issueKey));
+  for (const [issue, depth] of [[parentA, 0], [childA, 1], [nested, 2]] as const) {
+    const cells = page.locator('.issues-table tbody tr').filter({ has: page.getByRole('link', { name: issue.issueKey, exact: true }) }).locator('td');
+    await expect(cells.nth(0)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
+    await expect(cells.nth(1)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
+  }
+  await page.getByRole('button', { name: 'Sort by Key', exact: true }).click();
+  await expect(keys).toHaveText([parentA, childA, nested, childB, unrelated, parentB, childC].map(issue => issue.issueKey));
+
+  // A hidden parent must not hide its children or add non-matching rows.
+  await page.getByRole('textbox', { name: 'Search issues' }).fill('child');
+  await expect(keys).toHaveText([childA, nested, childB, childC].map(issue => issue.issueKey));
+  await expect(keys.nth(0).locator('..')).toHaveCSS('padding-inline-start', '18px');
+  await expect(keys.nth(1).locator('..')).toHaveCSS('padding-inline-start', '42px');
+  await expect(page.getByRole('navigation', { name: 'Issue pagination' })).toContainText('1–4 of 4 issues');
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('issue pagination: sizes, navigation, filters, and shrinking results', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Paginated work', key: 'PAGE' } })).json() as Project;
