@@ -48,17 +48,22 @@ function issueOptions(command: Command) {
     .option('--issue-type <type>', 'Global issue type: Bug, Issue, Task, Sub-Task, Story')
     .option('--parent <issue-key-or-id>', 'Parent for a Sub-Task; use an empty string to clear when changing type')
     .option('--status <name-or-id>', 'Any project status (quote names containing spaces)')
+    .option('--priority <number>', 'Integer priority within a status; lower comes first (default: 0)')
     .option('--labels <comma-separated>', 'Replace labels; use an empty string to clear')
     .option('--assignee <text>', 'Free-text assignee; use an empty string to clear')
     .option('--resolution-date <timestamp>', 'Resolution timestamp (ISO 8601 with timezone); use an empty string to clear');
 }
-type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; labels?: string; assignee?: string; resolutionDate?: string; updatedAt?: string };
+type Options = { issueType?: string; parent?: string; title?: string; description?: string; descriptionFile?: string; notes?: string; notesFile?: string; status?: string; priority?: string; labels?: string; assignee?: string; resolutionDate?: string; updatedAt?: string };
 async function input(options: Options, p: Project): Promise<UpdateIssueInput> {
   const data: UpdateIssueInput = {};
   for (const field of ['title', 'description', 'notes', 'assignee', 'updatedAt'] as const) if (options[field] !== undefined) data[field] = options[field];
   if (options.descriptionFile) data.description = await readFile(options.descriptionFile, 'utf8');
   if (options.notesFile) data.notes = await readFile(options.notesFile, 'utf8');
   if (options.status) data.statusId = statusId(p, options.status);
+  if (options.priority !== undefined) {
+    if (!/^-?\d+$/.test(options.priority)) throw new Error('Priority must be an integer');
+    data.priority = Number(options.priority);
+  }
   if (options.issueType !== undefined) data.issueType = options.issueType;
   if (options.parent !== undefined) data.parentIssueId = options.parent === '' ? null : (await (await api()).issue(options.parent)).issueId;
   if (options.resolutionDate !== undefined) data.resolutionDate = options.resolutionDate === '' ? null : options.resolutionDate;
@@ -69,7 +74,7 @@ function showIssue(issue: Issue) {
   if (program.opts().json) { print(issue); return; }
   console.log(issue.issueKey + '  ' + issue.title);
   console.log('Type: ' + issue.issueType + ' | Parent issue ID: ' + (issue.parentIssueId ?? 'None'));
-  console.log('Status: ' + issue.status.title + ' | Assignee: ' + (issue.assignee || 'Unassigned') + ' | Labels: ' + (issue.labels.join(', ') || 'None'));
+  console.log('Status: ' + issue.status.title + ' | Priority: ' + issue.priority + ' | Assignee: ' + (issue.assignee || 'Unassigned') + ' | Labels: ' + (issue.labels.join(', ') || 'None'));
   console.log('Created: ' + issue.createdAt + ' | Updated: ' + issue.updatedAt + ' | Resolution date: ' + (issue.resolutionDate || 'None'));
   console.log('\nDescription\n' + (issue.description || '—') + '\n\nNotes\n' + (issue.notes || '—'));
   if (issue.linkedIssues.length) { console.log('\nLinked issues'); console.table(issue.linkedIssues.map(i => ({ key: i.issueKey, title: i.title }))); }
@@ -146,7 +151,7 @@ issues.command('list <project>').option('--status <name-or-id>').option('--searc
   .action(async (ref, options) => {
     const p = await project(ref);
     const list = await (await api()).issues(p.projectId, { statusId: options.status ? statusId(p, options.status) : undefined, search: options.search, viewId: options.view === undefined ? undefined : Number(options.view) });
-    print(list, list.map(i => ({ key: i.issueKey, title: i.title, type: i.issueType, parent: i.parentIssueId, status: i.status.title, assignee: i.assignee, labels: i.labels.join(', ') })));
+    print(list, list.map(i => ({ key: i.issueKey, title: i.title, type: i.issueType, parent: i.parentIssueId, status: i.status.title, priority: i.priority, assignee: i.assignee, labels: i.labels.join(', ') })));
   });
 issueOptions(issues.command('create <project> <title>')
   .option('--issue-number <number>', 'Set a per-project issue number on creation (for imports)')

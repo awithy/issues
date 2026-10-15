@@ -9,8 +9,9 @@ For architecture, data models, API contracts, authentication details, testing st
 - Projects and issues with keys such as `WEB-123`.
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Undirected issue links, including across projects, visible from either issue.
-- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, clickable labels that add removable match-all filters, inline status changes, J/K row selection and Enter to open details, and sorting by Key, Type, Status, or Assignee (Status by default, in workflow order).
+- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, clickable labels that add removable match-all filters, inline status changes, J/K row selection and Enter to open details, and sorting by Key, Type, Status, or Assignee (Status then numeric priority by default, in workflow order; lower priority numbers first).
 - Shared saved views under each project, filtering by labels (match all), statuses (match any), and issue types (match any).
+- Integer issue priority (default **0**), ordering within a status and among sibling Sub-Tasks; never ranking across statuses.
 - Markdown Description and Notes with previews, labels, free-text assignees, and an optional resolution date.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
 - Multi-user login; every authenticated user has full access.
@@ -99,6 +100,7 @@ issctl issue update WEB-2 --parent "" --issue-type Task
 issctl issue list WEB
 issctl issue list WEB --status "in progress" --search landing
 issctl issue show WEB-1
+issctl issue update WEB-1 --priority 10
 issctl issue update WEB-1 --status archived
 issctl issue update WEB-1 --status backlog --notes-file ./notes.md
 issctl issue update WEB-1 --description-file ./description.md
@@ -117,6 +119,8 @@ issctl issue delete WEB-1 --yes
 issctl project delete WEB --yes
 issctl logout
 ```
+
+`--priority` sets an integer ordering value (default `0`; lower comes first). Status sorting uses priority only within each status, with descending issue number breaking ties. Sub-Tasks are grouped beneath visible parents only when they share a status.
 
 `--resolution-date` sets a resolution timestamp on create/update; use an empty string to clear. Timestamps use ISO 8601 with a timezone, e.g. `2024-05-20T17:00:00Z`.
 

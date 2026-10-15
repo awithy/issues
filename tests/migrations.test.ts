@@ -20,9 +20,9 @@ test('upgrade an existing database without losing issues; migrations run only on
     INSERT INTO issues(project_id, issue_number, title, status_id) VALUES (1, 1, 'Keep this issue', 1);
   `);
   await Promise.all([migrate(pool), migrate(pool)]);
-  const issue = (await pool.query('SELECT title, issue_type, parent_issue_id, resolution_date FROM issues')).rows[0];
-  assert.deepEqual(issue, { title: 'Keep this issue', issue_type: 'Issue', parent_issue_id: null, resolution_date: null });
-  assert.deepEqual((await pool.query('SELECT filename FROM schema_migrations ORDER BY filename')).rows, [{ filename: '001.sql' }, { filename: '002.sql' }, { filename: '003.sql' }, { filename: '004.sql' }, { filename: '005.sql' }, { filename: '006.sql' }]);
+  const issue = (await pool.query('SELECT title, issue_type, parent_issue_id, resolution_date, priority FROM issues')).rows[0];
+  assert.deepEqual(issue, { title: 'Keep this issue', issue_type: 'Issue', parent_issue_id: null, resolution_date: null, priority: 0 });
+  assert.deepEqual((await pool.query('SELECT filename FROM schema_migrations ORDER BY filename')).rows, [{ filename: '001.sql' }, { filename: '002.sql' }, { filename: '003.sql' }, { filename: '004.sql' }, { filename: '005.sql' }, { filename: '006.sql' }, { filename: '007.sql' }]);
   assert.equal((await pool.query('SELECT 1 FROM issue_links')).rowCount, 0);
   assert.equal((await pool.query('SELECT 1 FROM project_views')).rowCount, 0);
 });

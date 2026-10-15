@@ -22,6 +22,7 @@ const timestamp = z.iso.datetime({ offset: true });
 const issueInput = z.object({
   title, issueType: z.enum(ISSUE_TYPES).optional(), parentIssueId: id.nullable().optional(),
   description: z.string().max(500000).optional(), notes: z.string().max(500000).optional(),
+  priority: z.number().int().min(-2147483648).max(2147483647).optional(),
   statusId: id.optional(), labels: z.array(z.string().trim().min(1).max(100)).max(50).optional(),
   assignee: z.string().trim().max(300).optional(), resolutionDate: timestamp.nullable().optional(),
 }).strict();

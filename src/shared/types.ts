@@ -10,10 +10,10 @@ export const ISSUE_TYPES = ['Bug', 'Issue', 'Task', 'Sub-Task', 'Story'] as cons
 export interface Issue {
   issueId: number; projectId: number; issueKey: string; title: string;
   issueType: IssueType; parentIssueId: number | null;
-  description: string; notes: string; status: IssueStatus; labels: string[];
+  description: string; notes: string; status: IssueStatus; priority: number; labels: string[];
   assignee: string; attachments: Attachment[]; linkedIssues: LinkedIssue[]; createdAt: string; updatedAt: string; resolutionDate: string | null;
 }
-export interface IssueInput { title: string; issueType?: IssueType; parentIssueId?: number | null; description?: string; notes?: string; statusId?: number; labels?: string[]; assignee?: string; resolutionDate?: string | null }
+export interface IssueInput { title: string; issueType?: IssueType; parentIssueId?: number | null; description?: string; notes?: string; statusId?: number; priority?: number; labels?: string[]; assignee?: string; resolutionDate?: string | null }
 export interface CreateIssueInput extends IssueInput { issueNumber?: number; createdAt?: string; updatedAt?: string }
 export interface UpdateIssueInput extends Partial<IssueInput> { updatedAt?: string }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }

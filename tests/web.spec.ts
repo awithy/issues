@@ -63,6 +63,8 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Build a landing page');
   await expect(page.getByLabel('Issue type', { exact: true }).locator('option')).toHaveText(['Bug', 'Issue', 'Task', 'Sub-Task', 'Story']);
   await page.getByLabel('Issue type', { exact: true }).selectOption('Story');
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('0');
+  await page.getByLabel('Priority', { exact: true }).fill('7');
   await page.getByRole('textbox', { name: 'Description', exact: true }).fill('# Goal\nA **simple** landing page.');
   await page.getByRole('textbox', { name: 'Notes', exact: true }).fill('## Design notes\n- Make it accessible');
   await page.getByRole('textbox', { name: 'Assignee', exact: true }).fill('Design team');
@@ -76,11 +78,14 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await page.getByRole('button', { name: 'Preview Notes', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Design notes', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Write Notes', exact: true }).click();
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('7');
+  await page.getByLabel('Priority', { exact: true }).fill('-2');
   await page.getByRole('textbox', { name: 'Notes', exact: true }).fill('Updated **notes**');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
   await expect(page.getByRole('status')).toHaveText('Changes saved');
   await page.reload();
   await expect(page.getByRole('textbox', { name: 'Notes', exact: true })).toHaveValue('Updated **notes**');
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('-2');
   await expect(page.getByLabel('Resolution date', { exact: true })).toHaveValue('2025-06-01T12:30:45.123');
   await page.getByLabel('Resolution date', { exact: true }).fill('');
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();
@@ -241,7 +246,8 @@ test('issue row bulk-adds sub-tasks with a design status and supports a single n
     for (const title of [statusTitle + ' layout', statusTitle + ' component']) {
       const row = page.locator('.issues-table tbody tr').filter({ has: page.getByRole('link', { name: title, exact: true }) });
       await expect(row).toBeVisible();
-      await expect(row.locator('td').nth(0)).toHaveCSS('padding-inline-start', '42px');
+      // The backlog parent must not pull design children out of their status section.
+      await expect(row.locator('td').nth(0)).toHaveCSS('padding-inline-start', '18px');
       await expect(row.locator('select option:checked')).toHaveText(statusTitle);
     }
   }
@@ -332,6 +338,33 @@ test('Sub-Tasks are grouped and indented under visible parents', async ({ page }
   await expect(keys.nth(0).locator('..')).toHaveCSS('padding-inline-start', '18px');
   await expect(keys.nth(1).locator('..')).toHaveCSS('padding-inline-start', '42px');
   await expect(page.getByRole('navigation', { name: 'Issue pagination' })).toContainText('1–4 of 4 issues');
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
+test('priority orders roots and sibling sub-tasks within statuses, never across statuses', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Prioritized work', key: 'PRIO' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  async function create(title: string, priority: number, parent?: Issue, statusId = project.issueStatuses[0]!.statusId) {
+    const response = await page.request.post(endpoint, { data: {
+      title, priority, statusId, issueType: parent ? 'Sub-Task' : 'Task', parentIssueId: parent?.issueId,
+    } });
+    expect(response.ok()).toBeTruthy();
+    return await response.json() as Issue;
+  }
+  const parent = await create('Parent first', 10);
+  const first = await create('First child', 1, parent);
+  const second = await create('Second child', 5, parent);
+  const otherParent = await create('Parent second', 20);
+  const later = await create('Child in a later status', -100, parent, project.issueStatuses[1]!.statusId);
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const keys = page.locator('.issues-table tbody .issue-key');
+  await expect(keys).toHaveText([parent, first, second, otherParent, later].map(i => i.issueKey));
+  await expect(page.getByRole('columnheader', { name: 'Priority', exact: true })).toBeVisible();
+  await expect(page.locator('.issues-table tbody tr td:nth-child(5)')).toHaveText(['10', '1', '5', '20', '-100']);
+  await expect(keys.last().locator('..')).toHaveCSS('padding-inline-start', '18px');
+  await page.getByRole('button', { name: 'Sort by Status', exact: true }).click();
+  await expect(keys).toHaveText([later, parent, first, second, otherParent].map(i => i.issueKey));
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 

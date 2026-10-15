@@ -7,7 +7,7 @@ export async function migrate(pool: pg.Pool) {
     // Serialize startup migrations, including concurrent API processes in the same schema.
     await db.query("SELECT pg_advisory_xact_lock(hashtext(current_schema() || '.migrations'))");
     await db.query('CREATE TABLE IF NOT EXISTS schema_migrations (filename text PRIMARY KEY)');
-    for (const filename of ['001.sql', '002.sql', '003.sql', '004.sql', '005.sql', '006.sql']) {
+    for (const filename of ['001.sql', '002.sql', '003.sql', '004.sql', '005.sql', '006.sql', '007.sql']) {
       if ((await db.query('SELECT 1 FROM schema_migrations WHERE filename=$1', [filename])).rowCount) continue;
       await db.query(await readFile(resolve('db', filename), 'utf8'));
       await db.query('INSERT INTO schema_migrations(filename) VALUES ($1)', [filename]);

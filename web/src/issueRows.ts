@@ -2,13 +2,14 @@ import type { Issue } from '../../src/shared/types';
 
 export interface IssueRow { issue: Issue; depth: number }
 
-// Group only the current page, preserving the API's sort order among siblings.
+// Group only same-status parents on the current page, preserving the API's
+// sort order among siblings without moving children across status sections.
 export function groupIssueRows(issues: Issue[]): IssueRow[] {
-  const visibleIds = new Set(issues.map(issue => issue.issueId));
+  const visibleIssues = new Map(issues.map(issue => [issue.issueId, issue]));
   const children = new Map<number, Issue[]>();
   const roots: Issue[] = [];
   for (const issue of issues) {
-    if (issue.parentIssueId !== null && visibleIds.has(issue.parentIssueId)) {
+    if (issue.parentIssueId !== null && visibleIssues.get(issue.parentIssueId)?.status.statusId === issue.status.statusId) {
       const siblings = children.get(issue.parentIssueId) ?? [];
       siblings.push(issue);
       children.set(issue.parentIssueId, siblings);
