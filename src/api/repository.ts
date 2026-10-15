@@ -169,6 +169,15 @@ export class Repository {
       if (current.parentIssueId !== null && input.issueType !== undefined && input.issueType !== current.issueType && input.parentIssueId !== null) throw new HttpError(400, 'Remove the parent before changing a Sub-Task type (send parentIssueId: null with the new type)');
       await this.validateParent(db, input.issueType ?? current.issueType, input.parentIssueId === undefined ? current.parentIssueId : input.parentIssueId, current.issueId);
       if (input.statusId !== undefined && !project.issueStatuses.some(s => s.statusId === input.statusId)) throw new HttpError(400, 'Status does not belong to this project');
+      if (input.statusId !== undefined && input.statusId !== current.status.statusId) {
+        const { rows: [row] } = await db.query<{ highest: number | null }>(
+          'SELECT max(priority) AS highest FROM issues WHERE project_id=$1 AND status_id=$2',
+          [current.projectId, input.statusId],
+        );
+        const priority = (row!.highest ?? -1) + 1;
+        if (priority > 2147483647) throw new HttpError(409, 'Priority limit reached');
+        input = { ...input, priority };
+      }
       const columns: Record<string, string> = { title: 'title', description: 'description', notes: 'notes', statusId: 'status_id', priority: 'priority', labels: 'labels', assignee: 'assignee', issueType: 'issue_type', parentIssueId: 'parent_issue_id', resolutionDate: 'resolution_date', updatedAt: 'updated_at' };
       const values: unknown[] = [current.issueId];
       const sets = Object.entries(input).map(([key, value]) => { values.push(value); return columns[key] + '=$' + values.length; });

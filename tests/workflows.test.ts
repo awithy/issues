@@ -172,10 +172,38 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     const filtered = await api.issues(p.projectId, { statusId: high.status.statusId, search: 'Priority' });
     assert.deepEqual(filtered.map(i => i.issueId), expected.slice(0, -1));
     assert.equal((await api.updateIssue(high.issueId, { priority: -3 })).priority, -3);
-    assert.equal((await api.updateIssue(high.issueId, { statusId: laterStatus })).priority, -3);
-    assert.equal((await api.updateIssue(high.issueId, { title: 'Still prioritized' })).priority, -3);
+    assert.equal((await api.updateIssue(high.issueId, { statusId: laterStatus })).priority, -99);
+    assert.equal((await api.updateIssue(high.issueId, { title: 'Still prioritized' })).priority, -99);
     await assert.rejects(api.updateIssue(high.issueId, { priority: 1.5 }), failure(400));
     await assert.rejects(api.request('/issues/' + high.issueId, { method: 'PATCH', body: JSON.stringify({ priority: null }) }), failure(400));
+    await api.deleteProject(p.projectId);
+  });
+  await t.test('status changes append after the destination maximum and serialize concurrent moves', async () => {
+    const p = await api.createProject('Status priorities', 'STATUSPRIO');
+    const source = p.issueStatuses[0]!.statusId;
+    const destination = p.issueStatuses[1]!.statusId;
+    const empty = p.issueStatuses[2]!.statusId;
+    const parent = await api.createIssue(p.projectId, { title: 'Source parent', priority: 100 });
+    const child = await api.createIssue(p.projectId, { title: 'Destination child', issueType: 'Sub-Task', parentIssueId: parent.issueId, statusId: destination, priority: 12 });
+    const first = await api.createIssue(p.projectId, { title: 'First move', priority: 99 });
+    const second = await api.createIssue(p.projectId, { title: 'Second move', priority: -10 });
+    const moved = await api.updateIssue(first.issueId, { statusId: destination, priority: 99 });
+    assert.equal(moved.priority, 13); // Includes Sub-Tasks, not the larger source priorities.
+    assert.equal((await api.updateIssue(second.issueId, { statusId: destination })).priority, 14);
+    assert.equal((await api.updateIssue(first.issueId, { statusId: destination, title: 'Same status' })).priority, 13);
+    assert.equal((await api.updateIssue(first.issueId, { statusId: destination, priority: 7 })).priority, 7);
+    assert.equal((await api.issue(child.issueId)).priority, 12);
+    assert.equal((await api.updateIssue(first.issueId, { statusId: empty })).priority, 0);
+
+    await api.updateIssue(first.issueId, { statusId: source });
+    await api.updateIssue(second.issueId, { statusId: source });
+    const concurrent = await Promise.all([first, second].map(i => api.updateIssue(i.issueId, { statusId: destination })));
+    assert.deepEqual(concurrent.map(i => i.priority).sort((a, b) => a - b), [13, 14]);
+
+    await api.updateIssue(child.issueId, { priority: 2147483647 });
+    const before = await api.issue(parent.issueId);
+    await assert.rejects(api.updateIssue(parent.issueId, { statusId: destination, title: 'Must not save' }), failure(409));
+    assert.deepEqual(await api.issue(parent.issueId), before);
     await api.deleteProject(p.projectId);
   });
   await t.test('priority adjustments swap neighbors and shift collision chains only within a project/status', async () => {
@@ -530,7 +558,7 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       await assert.rejects(cli('issue', 'update', 'CLI-123', '--issue-number', '456'), /unknown option/);
       const notes = join(temp, 'notes.md'); await writeFile(notes, '## Updated via file');
       const updated = JSON.parse(await cli('--json', 'issue', 'update', 'CLI-1', '--notes-file', notes, '--status', 'archived', '--assignee', 'Someone external', '--labels', 'cli,test', '--priority', '-2')) as Issue;
-      assert.equal(updated.priority, -2);
+      assert.equal(updated.priority, 0); // Status changes override an accompanying --priority.
       assert.equal(updated.notes, '## Updated via file'); assert.equal(updated.status.title, 'archived');
       const view = JSON.parse(await cli('--json', 'view', 'create', 'CLI', 'CLI work', '--labels', 'cli,test', '--statuses', 'archived,backlog', '--issue-types', updated.issueType)) as ProjectView;
       assert.equal((JSON.parse(await cli('--json', 'view', 'list', 'CLI')) as ProjectView[])[0]!.viewId, view.viewId);

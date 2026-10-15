@@ -70,7 +70,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
     await run(async () => {
       const data: IssueInput = { title, issueType, parentIssueId, description, notes, statusId, priority: Number(priority), assignee, resolutionDate, labels: labels.split(',').map(label => label.trim()).filter(Boolean) };
       const result = issue ? await api.updateIssue(issue.issueId, data) : await api.createIssue(project.projectId, data);
-      setIssue(result); setSaved(true); onSaved(result);
+      setIssue(result); setPriority(String(result.priority)); setSaved(true); onSaved(result);
     });
   }
   return <section className="issue-detail">
@@ -103,7 +103,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
           <label className="field">Status<select value={statusId} onChange={event => setStatusId(Number(event.target.value))}>
             {project.issueStatuses.map(status => <option key={status.statusId} value={status.statusId}>{status.title}</option>)}
           </select></label>
-          <label className="field">Priority<input aria-label="Priority" type="number" required step="1" min={-2147483648} max={2147483647} value={priority} onChange={event => setPriority(event.target.value)} /><small>Lower numbers come first within a status. Default: 0.</small></label>
+          <label className="field">Priority<input aria-label="Priority" type="number" required step="1" min={-2147483648} max={2147483647} value={priority} onChange={event => setPriority(event.target.value)} /><small>Lower numbers come first within a status. Default: 0. Changing status assigns the next priority at the end of that status.</small></label>
           <label className="field">Assignee<input value={assignee} onChange={event => setAssignee(event.target.value)} placeholder="Name or username" maxLength={300} /></label>
           <label className="field">Labels<input aria-label="Labels" value={labels} onChange={event => setLabels(event.target.value)} placeholder="frontend, urgent" /><small>Separate labels with commas.</small></label>
           <label className="field">Resolution date<input aria-label="Resolution date" type="datetime-local" step="0.001" value={resolutionDate ? localDateTime(resolutionDate) : ''} onChange={event => setResolutionDate(event.target.value ? new Date(event.target.value).toISOString() : null)} /><small>Local time. Independent of status; clear to remove.</small></label>

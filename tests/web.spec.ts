@@ -368,6 +368,31 @@ test('priority orders roots and sibling sub-tasks within statuses, never across 
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('status changes append priority from the table and keep the editor priority in sync', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Status priorities', key: 'STATUSPRIO' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  await page.request.post(endpoint, { data: { title: 'Source maximum', priority: 50 } });
+  await page.request.post(endpoint, { data: { title: 'Destination maximum', statusId: project.issueStatuses[1]!.statusId, priority: 12 } });
+  const moving = await (await page.request.post(endpoint, { data: { title: 'Moving issue', priority: -5 } })).json() as Issue;
+  await page.goto(url + '/#/projects/' + project.projectId);
+  await page.getByLabel('Status of ' + moving.issueKey).selectOption({ label: 'design' });
+  const row = page.locator(`.issues-table tr[data-issue-id="${moving.issueId}"]`);
+  await expect(row.locator('td').nth(4)).toHaveText('13');
+  await page.getByRole('link', { name: 'Moving issue', exact: true }).click();
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('13');
+  await page.getByRole('combobox', { name: /^Status/ }).selectOption({ label: 'backlog' });
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Changes saved');
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('51');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Moved issue');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Changes saved');
+  await page.reload();
+  await expect(page.getByLabel('Priority', { exact: true })).toHaveValue('51');
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('issue pagination: sizes, navigation, filters, and shrinking results', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Paginated work', key: 'PAGE' } })).json() as Project;
