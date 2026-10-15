@@ -80,7 +80,7 @@ export function App() {
   if (checking) return <div className="loading-screen">Loading Issues…</div>;
   if (!username) return <Login api={api} initialError={error} onLogin={user => { setError(''); setUsername(user); }} />;
   return <div className="app-shell">
-    <header className="app-header"><a className="brand" href="#"><span className="brand-mark">i</span>issues<span className="brand-caption">A little less process.</span></a>
+    <header className="app-header"><a className="brand" href="#"><span className="brand-mark">i</span>issues</a>
       <div className="user-menu"><span className="avatar">{username.slice(0, 1).toUpperCase()}</span><span>{username}</span><button className="ghost" onClick={async () => {
         try { await api.logout(); setUsername(undefined); setProjects([]); setIssues([]); setError(''); } catch (error) { setError(message(error)); }
       }}>Log out</button></div>
@@ -96,7 +96,6 @@ export function App() {
       </div>)}</nav>
       {!projects.length && <p className="muted small">{projectsLoading ? 'Loading projects…' : 'Your projects will appear here.'}</p>}
       <button className="new-project-link" onClick={() => setCreateProject(true)}>+ New project</button>
-      <div className="sidebar-footer">Simple projects.<br />Clear next steps.</div>
     </aside>
     <main className="main-content"><ErrorNotice error={error} />
       {viewMissing ? <div className="welcome"><h1>View not found</h1><a href={'#/projects/' + project!.projectId}>Back to project</a></div> : project ? route.issue ? <IssueDetail key={route.issue} api={api} project={project} issueKey={route.issue === 'new' ? undefined : route.issue}
