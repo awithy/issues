@@ -293,6 +293,24 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.download(attachment.attachmentId), failure(404));
     assert.equal((await pool.query('SELECT 1 FROM attachments')).rowCount, 0);
   });
+  await t.test('image previews stay authenticated and only allow raster formats inline', async () => {
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=', 'base64');
+    const image = await api.upload(issue.issueId, new Blob([png]), 'preview.PNG');
+    const path = '/api/attachments/' + image.attachmentId;
+    await request(app).get(path + '?preview=1').expect(401);
+    const preview = await request(app).get(path + '?preview=1').set('Authorization', 'Bearer ' + api.token)
+      .expect(200).expect('Content-Type', 'image/png').expect('Content-Disposition', /^inline;/).expect('Cache-Control', 'no-store');
+    assert.deepEqual(preview.body, png);
+    await request(app).get(path).set('Authorization', 'Bearer ' + api.token)
+      .expect(200).expect('Content-Type', 'application/octet-stream').expect('Content-Disposition', /^attachment;/);
+    await api.deleteAttachment(image.attachmentId);
+    for (const [filename, type, content] of [['page.html', 'text/html', '<script>alert(1)</script>'], ['vector.svg', 'image/svg+xml', '<svg xmlns="http://www.w3.org/2000/svg"/>']]) {
+      const file = await api.upload(issue.issueId, new Blob([content!], { type }), filename!);
+      await request(app).get('/api/attachments/' + file.attachmentId + '?preview=1').set('Authorization', 'Bearer ' + api.token)
+        .expect(200).expect('Content-Type', 'application/octet-stream').expect('Content-Disposition', /^attachment;/);
+      await api.deleteAttachment(file.attachmentId);
+    }
+  });
   await t.test('concurrent creation gets unique per-project numbers, which are never reused after deletion', async () => {
     const p = await api.createProject('Counters', 'NUM');
     const concurrent = await Promise.all(Array.from({ length: 5 }, (_, index) => api.createIssue(p.projectId, { title: 'Issue ' + index })));

@@ -57,7 +57,7 @@ export class ApiClient {
     const form = new FormData(); form.set('file', file, filename);
     return this.request<Attachment>('/issues/' + encodeURIComponent(id) + '/attachments', { method: 'POST', body: form, headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined });
   }
-  attachmentUrl(id: number) { return this.baseUrl + '/attachments/' + id; }
+  attachmentUrl(id: number, preview = false) { return this.baseUrl + '/attachments/' + id + (preview ? '?preview=1' : ''); }
   async download(id: number): Promise<Blob> {
     const response = await fetch(this.attachmentUrl(id), { headers: this.token ? { Authorization: 'Bearer ' + this.token } : {}, credentials: 'same-origin' });
     if (!response.ok) throw new ApiError('Download failed', response.status);

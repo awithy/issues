@@ -150,6 +150,57 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   expect(errors).toEqual([]);
 });
 
+test('image attachments: scaled previews, full-size dialog, reload, and deletion', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Image previews', key: 'IMG' } })).json() as Project;
+  const issue = await (await page.request.post(url + '/api/projects/' + project.projectId + '/issues', { data: { title: 'Screenshots' } })).json() as Issue;
+  await page.goto(url + '/#/projects/' + project.projectId + '/issues/' + issue.issueKey);
+  await expect(page.getByLabel('Image attachments', { exact: true })).toHaveCount(0);
+  const images = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); canvas.width = 1800; canvas.height = 900;
+    const context = canvas.getContext('2d')!;
+    context.fillStyle = '#4267dc'; context.fillRect(0, 0, canvas.width, canvas.height);
+    return [canvas.toDataURL('image/png'), canvas.toDataURL('image/jpeg')].map(data => data.split(',')[1]!);
+  });
+  await page.getByLabel('Attach files', { exact: true }).setInputFiles([
+    { name: 'screenshot.png', mimeType: 'image/png', buffer: Buffer.from(images[0]!, 'base64') },
+    { name: 'photo.JPG', mimeType: 'application/octet-stream', buffer: Buffer.from(images[1]!, 'base64') },
+    { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('Not an image') },
+  ]);
+  await expect(page.getByRole('link', { name: 'notes.txt', exact: true })).toBeVisible();
+  const gallery = page.getByLabel('Image attachments', { exact: true });
+  await expect(gallery.getByRole('img')).toHaveCount(2);
+  for (const filename of ['screenshot.png', 'photo.JPG']) {
+    const image = gallery.getByRole('img', { name: filename, exact: true });
+    await image.scrollIntoViewIfNeeded();
+    await expect.poll(() => image.evaluate(element => (element as HTMLImageElement).naturalWidth)).toBe(1800);
+    const dimensions = await image.evaluate(element => ({ width: element.clientWidth, height: element.clientHeight, container: element.parentElement!.clientWidth }));
+    expect(dimensions.width).toBeLessThan(1800);
+    expect(dimensions.width).toBeLessThanOrEqual(dimensions.container);
+    expect(Math.abs(dimensions.height - dimensions.width / 2)).toBeLessThan(1);
+    await gallery.getByRole('button', { name: 'Expand ' + filename, exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: filename, exact: true });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('img')).toHaveCSS('width', '1800px');
+    await expect(dialog.getByRole('img')).toHaveCSS('height', '900px');
+    expect(await dialog.locator('.full-size-image').evaluate(element => element.scrollWidth > element.clientWidth)).toBeTruthy();
+    if (filename === 'screenshot.png') await page.keyboard.press('Escape');
+    else await dialog.getByRole('button', { name: 'Close dialog', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+    await expect(gallery.getByRole('button', { name: 'Expand ' + filename, exact: true })).toBeFocused();
+  }
+  await page.reload();
+  await expect(gallery.getByRole('img')).toHaveCount(2);
+  page.on('dialog', dialog => dialog.accept());
+  for (const filename of ['screenshot.png', 'photo.JPG']) {
+    await page.getByRole('button', { name: 'Delete attachment ' + filename, exact: true }).click();
+    await expect(gallery.getByRole('img', { name: filename, exact: true })).toHaveCount(0);
+  }
+  await expect(gallery).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'notes.txt', exact: true })).toBeVisible();
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('Sub-Tasks are grouped and indented under visible parents', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Hierarchical work', key: 'TREE' } })).json() as Project;

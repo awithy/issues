@@ -14,6 +14,7 @@ import { Repository } from './repository.js';
 import { HttpError } from './db.js';
 import type { User } from './users.js';
 import { ISSUE_TYPES, ISSUE_PAGE_SIZES, ISSUE_SORT_COLUMNS } from '../shared/types.js';
+import { attachmentImageType } from '../shared/attachments.js';
 
 const id = z.coerce.number().int().positive().max(2147483647);
 const title = z.string().trim().min(1).max(300);
@@ -122,7 +123,10 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   });
   router.get('/attachments/:id', async (req, res) => {
     const attachment = await repo.attachment(id.parse(req.params.id));
-    res.attachment(attachment.filename).type('application/octet-stream').set('Cache-Control', 'no-store').send(attachment.data);
+    const imageType = req.query.preview === '1' ? attachmentImageType(attachment) : undefined;
+    res.attachment(attachment.filename).type(imageType || 'application/octet-stream');
+    if (imageType) res.set('Content-Disposition', res.get('Content-Disposition')!.replace(/^attachment/, 'inline'));
+    res.set('Cache-Control', 'no-store').send(attachment.data);
   });
   router.delete('/attachments/:id', async (req, res) => { await repo.deleteAttachment(id.parse(req.params.id)); res.sendStatus(204); });
   router.use((_req, _res, next) => next(new HttpError(404, 'API endpoint not found')));

@@ -4,6 +4,7 @@ import type { Attachment, Issue, IssueInput, IssueType, Project } from '../../sr
 import { ISSUE_TYPES } from '../../src/shared/types';
 import { ErrorNotice, MarkdownField, message } from './ui';
 import { IssueLinks } from './IssueLinks';
+import { ImageAttachments } from './ImageAttachments';
 function localDateTime(value: string) {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, -1);
@@ -122,6 +123,7 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
           }}>Delete</button></li>)}
       </ul>}
       </section>
+      <ImageAttachments api={api} attachments={attachments} />
     </>}
   </section>;
 }
