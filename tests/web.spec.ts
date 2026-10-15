@@ -476,6 +476,97 @@ test('issue types appear as small accessible icons in table cells', async ({ pag
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('J/K select displayed issue rows and Enter opens details without intercepting controls', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Keyboard work', key: 'KEYS' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const parent = await (await page.request.post(endpoint, { data: { title: 'Parent task' } })).json() as Issue;
+  const child = await (await page.request.post(endpoint, { data: { title: 'Child task', issueType: 'Sub-Task', parentIssueId: parent.issueId } })).json() as Issue;
+  const other = await (await page.request.post(endpoint, { data: { title: 'Other task' } })).json() as Issue;
+  await page.request.post(url + '/api/projects/' + project.projectId + '/views', { data: { title: 'Keyboard view' } });
+  const projectUrl = url + '/#/projects/' + project.projectId;
+  await page.goto(projectUrl);
+  const table = page.locator('.table-wrap');
+  const rows = page.locator('.issues-table tbody tr');
+  const selected = page.locator('.issues-table tbody tr[aria-current="true"]');
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await expect(rows.locator('.issue-key')).toHaveText([other.issueKey, parent.issueKey, child.issueKey]);
+  await expect(selected).toHaveCount(0);
+  await page.keyboard.press('j');
+  await expect(selected.locator('.issue-key')).toHaveText(other.issueKey);
+  await expect(selected).toHaveClass('selected');
+  await expect(selected).toBeFocused();
+  await expect(selected).toHaveCSS('background-color', 'rgb(36, 50, 82)');
+  await page.keyboard.press('k');
+  await expect(selected.locator('.issue-key')).toHaveText(other.issueKey);
+  await page.keyboard.press('j');
+  await expect(selected.locator('.issue-key')).toHaveText(parent.issueKey);
+  await page.keyboard.press('j');
+  await expect(selected.locator('.issue-key')).toHaveText(child.issueKey);
+  await page.keyboard.press('j');
+  await expect(selected.locator('.issue-key')).toHaveText(child.issueKey);
+  await page.keyboard.press('k');
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(projectUrl + '/issues/' + parent.issueKey);
+  await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Parent task');
+  await page.keyboard.press('Escape');
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await expect(selected.locator('.issue-key')).toHaveText(parent.issueKey);
+
+  const search = page.getByRole('textbox', { name: 'Search issues' });
+  await search.focus();
+  await page.keyboard.type('jk');
+  await page.keyboard.press('Enter');
+  await expect(search).toHaveValue('jk');
+  await expect(page).toHaveURL(projectUrl);
+  await expect(rows).toHaveCount(0);
+  await search.fill('');
+  await expect(rows).toHaveCount(3);
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await expect(selected).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close dialog' }).focus();
+  await page.keyboard.press('j');
+  await page.keyboard.press('k');
+  await expect(selected).toHaveCount(0);
+  await page.keyboard.press('Enter');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await page.getByLabel('Status of ' + other.issueKey).focus();
+  await page.keyboard.press('j');
+  await expect(selected).toHaveCount(0);
+  await page.getByRole('heading', { name: 'Issues', exact: false }).click();
+  await page.keyboard.press('k');
+  await expect(selected.locator('.issue-key')).toHaveText(child.issueKey);
+
+  await page.getByRole('link', { name: 'Keyboard view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Keyboard view', exact: true })).toBeVisible();
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await expect(selected).toHaveCount(0);
+  await page.keyboard.press('j');
+  await expect(selected.locator('.issue-key')).toHaveText(other.issueKey);
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/views\/\d+\/issues\/KEYS-3$/);
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
+test('keyboard selection scrolls the selected issue into view', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Keyboard scrolling', key: 'KSCROLL' } })).json() as Project;
+  await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id)
+    SELECT $1,n,'Keyboard issue ' || n,$2 FROM generate_series(1,45) n`,
+  [project.projectId, project.issueStatuses[0]!.statusId]);
+  await page.goto(url + '/#/projects/' + project.projectId);
+  await expect(page.locator('.issues-table tbody tr')).toHaveCount(45);
+  await expect(page.locator('.table-wrap')).toHaveAttribute('aria-busy', 'false');
+  for (let i = 0; i < 30; i++) await page.keyboard.press('j');
+  const selected = page.locator('.issues-table tr.selected');
+  await expect(selected.locator('.issue-key')).toHaveText('KSCROLL-16');
+  await expect(selected).toBeInViewport();
+  expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(500);
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('issue sorting: all sortable headers, both directions, and returning from details', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Sortable work', key: 'SORT' } })).json() as Project;

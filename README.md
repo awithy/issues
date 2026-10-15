@@ -9,7 +9,7 @@ For architecture, data models, API contracts, authentication details, testing st
 - Projects and issues with keys such as `WEB-123`.
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Undirected issue links, including across projects, visible from either issue.
-- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, clickable labels that add removable match-all filters, inline status changes, and sorting by Key, Type, Status, or Assignee (Status by default, in workflow order).
+- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, clickable labels that add removable match-all filters, inline status changes, J/K row selection and Enter to open details, and sorting by Key, Type, Status, or Assignee (Status by default, in workflow order).
 - Shared saved views under each project, filtering by labels (match all), statuses (match any), and issue types (match any).
 - Markdown Description and Notes with previews, labels, free-text assignees, and an optional resolution date.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
