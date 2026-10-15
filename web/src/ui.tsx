@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 export const message = (error: unknown) => error instanceof Error ? error.message : String(error);
 export function ErrorNotice({ error }: { error: string }) { return error ? <div className="error" role="alert">{error}</div> : null; }
 export function Modal({ title, children, onClose, className, busy = false }: { title: string; children: ReactNode; onClose: () => void; className?: string; busy?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const dialog = ref.current!; dialog.showModal();
     return () => dialog.close();
   }, []);

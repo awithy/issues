@@ -608,6 +608,70 @@ test('J/K select displayed issue rows and Enter opens details without intercepti
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('S opens a status picker with arrow navigation, Enter to save, and Escape to cancel', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Keyboard statuses', key: 'SKEY' } })).json() as Project;
+  const issue = await (await page.request.post(url + '/api/projects/' + project.projectId + '/issues', { data: { title: 'Change my status' } })).json() as Issue;
+  const view = await (await page.request.post(url + '/api/projects/' + project.projectId + '/views', { data: { title: 'Status view' } })).json();
+  const projectUrl = url + '/#/projects/' + project.projectId;
+  const table = page.locator('.table-wrap');
+  const row = page.locator(`.issues-table tr[data-issue-id="${issue.issueId}"]`);
+  const status = row.getByLabel('Status of ' + issue.issueKey);
+  const dialog = page.getByRole('dialog', { name: 'Change status of ' + issue.issueKey });
+  const picker = dialog.getByRole('listbox', { name: 'Choose status' });
+  const savedStatus = async () => (await (await page.request.get(url + '/api/issues/' + issue.issueId)).json() as Issue).status.statusId;
+  for (const tableUrl of [projectUrl, projectUrl + '/views/' + view.viewId]) {
+    await page.goto(tableUrl);
+    await expect(row).toBeVisible();
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await page.getByRole('heading', { name: 'Issues', exact: false }).click();
+    await page.keyboard.press('s'); // No selection: do nothing.
+    await expect(dialog).toHaveCount(0);
+    await page.keyboard.press('j');
+    await expect(row).toBeFocused();
+    await page.keyboard.press('s');
+    await expect(picker).toBeFocused();
+    await expect(picker).toHaveValue(String(project.issueStatuses[0]!.statusId));
+    await expect(picker.locator('option')).toHaveText(project.issueStatuses.map(s => s.title));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('ArrowUp');
+    await expect(picker).toHaveValue(String(project.issueStatuses[1]!.statusId));
+    expect(await savedStatus()).toBe(project.issueStatuses[0]!.statusId);
+    await page.keyboard.press('Enter');
+    await expect(dialog).toHaveCount(0);
+    await expect(status).toHaveValue(String(project.issueStatuses[1]!.statusId));
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await expect(row).toHaveAttribute('aria-current', 'true');
+    await expect(row).toBeFocused();
+    expect(await savedStatus()).toBe(project.issueStatuses[1]!.statusId);
+    await expect(page).toHaveURL(tableUrl); // Enter must not open issue details.
+
+    await page.keyboard.press('s');
+    await expect(picker).toHaveValue(String(project.issueStatuses[1]!.statusId));
+    await page.keyboard.press('ArrowDown');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    await expect(row).toBeFocused();
+    expect(await savedStatus()).toBe(project.issueStatuses[1]!.statusId);
+
+    await page.keyboard.press('Control+s');
+    await expect(dialog).toHaveCount(0);
+    const search = page.getByRole('textbox', { name: 'Search issues' });
+    await search.focus();
+    await page.keyboard.press('s');
+    await expect(search).toHaveValue('s');
+    await expect(dialog).toHaveCount(0);
+    await search.fill('');
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await status.selectOption(String(project.issueStatuses[0]!.statusId));
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+  }
+  await page.reload();
+  await expect(status).toHaveValue(String(project.issueStatuses[0]!.statusId));
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('clicking issue rows selects them for keyboard navigation and preserves links and controls', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Click selection', key: 'CLICK' } })).json() as Project;

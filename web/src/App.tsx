@@ -3,6 +3,7 @@ import { ApiClient, ApiError } from '../../src/shared/client';
 import { ISSUE_PAGE_SIZES, type IssuePageSize, type IssueSort, type IssueSortColumn, type Issue, type Project, type ProjectView, type ViewInput } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
+import { IssueStatusPicker } from './IssueStatusPicker';
 import { AddSubTasks } from './AddSubTasks';
 import { IssueTypeIcon } from './IssueTypeIcon';
 import { ProjectSettings } from './ProjectSettings';
@@ -42,6 +43,15 @@ export function App() {
   const [labelFilters, setLabelFilters] = useState<string[]>([]);
   const [revision, setRevision] = useState(0);
   const [changing, setChanging] = useState<number>();
+  const [statusPickerIssue, setStatusPickerIssue] = useState<Issue>();
+  async function changeIssueStatus(issue: Issue, statusId: number) {
+    setChanging(issue.issueId); setError('');
+    try {
+      const updated = await api.updateIssue(issue.issueId, { statusId });
+      setIssues(previous => previous.map(i => i.issueId === issue.issueId ? updated : i));
+      setRevision(r => r + 1);
+    } finally { setChanging(undefined); }
+  }
   const [createProject, setCreateProject] = useState(false);
   const [subTaskParent, setSubTaskParent] = useState<Issue>();
   const [settings, setSettings] = useState(false);
@@ -54,6 +64,7 @@ export function App() {
   const { selectedIssueId, setSelectedIssueId } = useIssueTableKeyboard({
     tableKey, tableRef, rows: issueRows, enabled: !!tableKey && !route.issue && !loading,
     onOpen: issue => navigate(project!.projectId, issue.issueKey, route.viewId),
+    onChangeStatus: issue => { if (changing === undefined) setStatusPickerIssue(issue); },
     onAdjustPriority: async (issue, delta) => {
       setError('');
       try { await api.adjustIssuePriority(issue.issueId, delta); setRevision(r => r + 1); }
@@ -136,9 +147,8 @@ export function App() {
               <td><IssueTypeIcon type={issue.issueType} /></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td><select className={'status-pill ' + (issue.status.title.toLowerCase() === 'in progress' ? 'in-progress' : issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
-                const statusId = Number(event.target.value); setChanging(issue.issueId); setError('');
-                try { const updated = await api.updateIssue(issue.issueId, { statusId }); setIssues(previous => previous.map(i => i.issueId === issue.issueId ? updated : i)); setRevision(r => r + 1); }
-                catch (error) { setError(message(error)); } finally { setChanging(undefined); }
+                try { await changeIssueStatus(issue, Number(event.target.value)); }
+                catch (error) { setError(message(error)); }
               }}>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select></td>
               <td>{issue.priority}</td>
               <td><span className={!issue.assignee ? 'muted' : ''}>{issue.assignee || 'Unassigned'}</span></td>
@@ -160,9 +170,11 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click a row to select it, or an issue key/title to edit details. Use J/K to move selection and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath same-status parents on this page.</p>
+          <p className="table-hint">Click a row to select it, or an issue key/title to edit details. Use J/K to move selection and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Press S to change status, then ↑/↓ and Enter to save (Esc cancels), or use the status dropdown. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath same-status parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
+    {statusPickerIssue && project && <IssueStatusPicker issue={statusPickerIssue} statuses={project.issueStatuses}
+      onSave={statusId => changeIssueStatus(statusPickerIssue, statusId)} onClose={() => setStatusPickerIssue(undefined)} />}
     {subTaskParent && project && <AddSubTasks api={api} project={project} parent={subTaskParent} onClose={() => setSubTaskParent(undefined)} onCreated={() => setRevision(r => r + 1)} />}
     {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} initialView={viewEditor.initialView} onClose={() => setViewEditor(undefined)}
       onSaved={async saved => { await refreshProjects(); setRevision(r => r + 1); navigate(saved.projectId, undefined, saved.viewId); }}

@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Issue } from '../../src/shared/types';
 import type { IssueRow } from './issueRows';
 
-export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpen, onAdjustPriority }: {
+export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpen, onChangeStatus, onAdjustPriority }: {
   tableKey: string | undefined;
   tableRef: RefObject<HTMLDivElement | null>;
   rows: IssueRow[];
   enabled: boolean;
   onOpen: (issue: Issue) => void;
+  onChangeStatus: (issue: Issue) => void;
   onAdjustPriority: (issue: Issue, delta: -1 | 1) => Promise<void>;
 }) {
   const adjustingPriority = useRef(false);
@@ -32,6 +33,11 @@ export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpe
         adjustingPriority.current = true;
         void onAdjustPriority(selected.issue, key === 'k' ? -1 : 1)
           .finally(() => { adjustingPriority.current = false; });
+      } else if (key === 's') {
+        const selected = rows.find(({ issue }) => issue.issueId === selectedId);
+        if (!selected || event.repeat) return;
+        event.preventDefault();
+        onChangeStatus(selected.issue);
       } else if (key === 'enter') {
         // Keep native activation for links and buttons, even when a row is selected.
         if (target instanceof Element && target.closest('a, button, summary, [role="button"]')) return;
@@ -53,7 +59,7 @@ export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpe
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [enabled, rows, selectedId, tableRef, onOpen, onAdjustPriority]);
+  }, [enabled, rows, selectedId, tableRef, onOpen, onChangeStatus, onAdjustPriority]);
 
   return { selectedIssueId: selectedId, setSelectedIssueId: setSelectedId };
 }

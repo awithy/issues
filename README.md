@@ -9,7 +9,7 @@ For architecture, data models, API contracts, authentication details, testing st
 - Projects and issues with keys such as `WEB-123`.
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Undirected issue links, including across projects, visible from either issue.
-- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, clickable labels that add removable match-all filters, inline status changes, click or J/K row selection, Enter to open details, Shift+K/J to raise/lower priority (shifting conflicts within the same status), and sorting by Key, Type, Status, or Assignee (Status then numeric priority by default, in workflow order; lower priority numbers first).
+- Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, clickable labels that add removable match-all filters, inline status changes, click or J/K row selection, Enter to open details, S to pick a status (↑/↓ then Enter; Esc cancels), Shift+K/J to raise/lower priority (shifting conflicts within the same status), and sorting by Key, Type, Status, or Assignee (Status then numeric priority by default, in workflow order; lower priority numbers first).
 - Shared saved views under each project, filtering by labels (match all), statuses (match any), and issue types (match any).
 - Integer issue priority (default **0**), ordering within a status and among sibling Sub-Tasks; never ranking across statuses.
 - Markdown Description and Notes with previews, labels, free-text assignees, and an optional resolution date.
