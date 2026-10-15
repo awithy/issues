@@ -364,6 +364,28 @@ test('returning from issue details restores the table scroll position', async ({
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('issue types appear as small accessible icons in table cells', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Type icons', key: 'ICON' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const parent = await (await page.request.post(endpoint, { data: { title: 'Story work', issueType: 'Story' } })).json() as Issue;
+  for (const issueType of ['Bug', 'Issue', 'Task', 'Sub-Task']) {
+    await page.request.post(endpoint, { data: { title: issueType + ' work', issueType, ...(issueType === 'Sub-Task' ? { parentIssueId: parent.issueId } : {}) } });
+  }
+  await page.goto(url + '/#/projects/' + project.projectId);
+  await expect(page.locator('.issues-table tbody tr')).toHaveCount(5);
+  for (const type of ['Bug', 'Issue', 'Task', 'Sub-Task', 'Story']) {
+    const cell = page.locator('.issues-table tbody tr').filter({ hasText: type + ' work' }).locator('td').nth(1);
+    const icon = cell.getByRole('img', { name: type, exact: true });
+    await expect(icon).toBeVisible();
+    await expect(icon.locator('title')).toHaveText(type);
+    await expect(icon).toHaveCSS('width', '16px');
+    await expect(icon).toHaveCSS('height', '16px');
+    await expect(cell).toHaveJSProperty('innerText', '');
+  }
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('issue sorting: all sortable headers, both directions, and returning from details', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Sortable work', key: 'SORT' } })).json() as Project;
@@ -375,7 +397,7 @@ test('issue sorting: all sortable headers, both directions, and returning from d
   await page.goto(url + '/#/projects/' + project.projectId);
   const keys = page.locator('.issues-table tbody .issue-key');
   await expect(page.locator('.issues-table th')).toContainText(['Key', 'Type', 'Title', 'Status', 'Assignee', 'Labels']);
-  await expect(page.locator('.issues-table tbody tr').filter({ hasText: 'Sort A' }).locator('td').nth(1)).toHaveText('Bug');
+  await expect(page.locator('.issues-table tbody tr').filter({ hasText: 'Sort A' }).locator('td').nth(1).getByRole('img', { name: 'Bug', exact: true })).toBeVisible();
   await expect(page.locator('.issues-table tbody tr').filter({ hasText: 'Sort A' }).locator('td').nth(2)).toHaveText('Sort A');
   await expect(page.getByRole('button', { name: 'Sort by Status', exact: true }).locator('..')).toHaveAttribute('aria-sort', 'ascending');
   await expect(keys).toHaveText(['SORT-20', 'SORT-10', 'SORT-11', 'SORT-2']);

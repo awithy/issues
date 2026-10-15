@@ -3,6 +3,7 @@ import { ApiClient, ApiError } from '../../src/shared/client';
 import { ISSUE_PAGE_SIZES, type IssuePageSize, type IssueSort, type IssueSortColumn, type Issue, type Project, type ProjectView } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
+import { IssueTypeIcon } from './IssueTypeIcon';
 import { ProjectSettings } from './ProjectSettings';
 import { ViewSettings } from './ViewSettings';
 import { groupIssueRows } from './issueRows';
@@ -116,7 +117,7 @@ export function App() {
           {labelFilters.length > 0 && <div className="label-filters" role="group" aria-label="Active label filters"><span className="muted small">Labels (all):</span>{labelFilters.map(label => <button className="label" key={label} aria-label={'Remove label filter ' + label} onClick={() => { setLabelFilters(previous => previous.filter(value => value !== label)); setPage(1); }}>{label}<span aria-hidden="true">×</span></button>)}</div>}
           <div className="table-wrap" ref={tableRef} aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
             <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
-              <td>{issue.issueType}</td>
+              <td><IssueTypeIcon type={issue.issueType} /></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td><select className={'status-pill ' + (issue.status.title.toLowerCase() === 'in progress' ? 'in-progress' : issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
                 const statusId = Number(event.target.value); setChanging(issue.issueId); setError('');
