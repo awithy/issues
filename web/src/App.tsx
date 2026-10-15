@@ -116,7 +116,7 @@ export function App() {
             <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td>{issue.issueType}</td>
-              <td><select className={'status-pill ' + (issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
+              <td><select className={'status-pill ' + (issue.status.title.toLowerCase() === 'in progress' ? 'in-progress' : issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
                 const statusId = Number(event.target.value); setChanging(issue.issueId); setError('');
                 try { const updated = await api.updateIssue(issue.issueId, { statusId }); setIssues(previous => previous.map(i => i.issueId === issue.issueId ? updated : i)); setRevision(r => r + 1); }
                 catch (error) { setError(message(error)); } finally { setChanging(undefined); }

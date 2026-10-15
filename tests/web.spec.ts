@@ -102,11 +102,16 @@ test('web happy path: projects, Markdown fields, issue table, statuses, files, p
   await page.getByRole('button', { name: 'Back to issues' }).click();
   await expect(page.getByRole('link', { name: 'Build a landing page', exact: true })).toBeVisible();
   await expect(page.locator('.table-wrap')).toHaveCSS('background-color', 'rgb(23, 28, 39)');
+  await page.getByLabel('Status of WEB-1').selectOption({ label: 'in progress' });
+  await expect(page.getByLabel('Status of WEB-1')).toBeEnabled();
+  await expect(page.getByLabel('Status of WEB-1')).toHaveCSS('background-color', 'rgb(145, 184, 155)');
+  await expect(page.getByLabel('Status of WEB-1')).toHaveCSS('color', 'rgb(32, 61, 41)');
   await page.getByLabel('Status of WEB-1').selectOption({ label: 'archived' });
   await expect(page.getByLabel('Status of WEB-1')).toBeEnabled();
   await expect(page.getByLabel('Status of WEB-1').locator('option:checked')).toHaveText('archived');
   await page.getByLabel('Status of WEB-1').selectOption({ label: 'design' });
   await expect(page.getByLabel('Status of WEB-1').locator('option:checked')).toHaveText('design');
+  await expect(page.getByLabel('Status of WEB-1')).toHaveCSS('background-color', 'rgb(36, 50, 82)');
   await page.getByRole('textbox', { name: 'Search issues' }).fill('does not exist');
   await expect(page.getByRole('heading', { name: 'No matching issues' })).toBeVisible();
   await page.getByRole('textbox', { name: 'Search issues' }).fill('');
