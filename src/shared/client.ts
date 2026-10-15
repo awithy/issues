@@ -32,6 +32,7 @@ export class ApiClient {
   private issueQuery(filters: IssueFilters) {
     const query = new URLSearchParams();
     if (filters.statusId) query.set('statusId', String(filters.statusId));
+    if (filters.includeSubTasks) query.set('includeSubTasks', 'true');
     if (filters.search) query.set('search', filters.search);
     for (const label of filters.labels ?? []) query.append('labels', label);
     if (filters.viewId !== undefined) query.set('viewId', String(filters.viewId));

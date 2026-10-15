@@ -238,6 +238,7 @@ test('issue row bulk-adds sub-tasks with a design status and supports a single n
       expect(response.ok()).toBeTruthy();
       await page.reload();
     }
+    await page.getByLabel('Filter by status').selectOption({ label: 'backlog' });
     await addButton.click();
     await expect(dialog.getByLabel('Sub-task status').locator('option:checked')).toHaveText(statusTitle);
     await dialog.getByRole('textbox', { name: 'Sub-task titles' }).fill(`  ${statusTitle} layout  \n\n  \n${statusTitle} component\n`);
@@ -246,8 +247,8 @@ test('issue row bulk-adds sub-tasks with a design status and supports a single n
     for (const title of [statusTitle + ' layout', statusTitle + ' component']) {
       const row = page.locator('.issues-table tbody tr').filter({ has: page.getByRole('link', { name: title, exact: true }) });
       await expect(row).toBeVisible();
-      // The backlog parent must not pull design children out of their status section.
-      await expect(row.locator('td').nth(0)).toHaveCSS('padding-inline-start', '18px');
+      // Newly created design children stay visible under the filtered backlog parent.
+      await expect(row.locator('td').nth(0)).toHaveCSS('padding-inline-start', '42px');
       await expect(row.locator('select option:checked')).toHaveText(statusTitle);
     }
   }
@@ -393,13 +394,38 @@ test('Sub-Tasks are grouped and indented under visible parents across statuses',
   await expect(keys).toHaveText([parentB, childC, unrelated, parentA, childB, childA, nested].map(issue => issue.issueKey));
   for (const [issue, depth] of [[parentA, 0], [childA, 1], [nested, 2]] as const) {
     const cells = page.locator('.issues-table tbody tr').filter({ has: page.getByRole('link', { name: issue.issueKey, exact: true }) }).locator('td');
-    await expect(cells.nth(0)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
-    await expect(cells.nth(2)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
+    for (const column of [0, 1, 2]) {
+      await expect(cells.nth(column)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
+    }
   }
   await page.getByRole('button', { name: 'Sort by Key', exact: true }).click();
   await expect(keys).toHaveText([parentA, childA, nested, childB, unrelated, parentB, childC].map(issue => issue.issueKey));
 
-  // A hidden parent must not hide its children or add non-matching rows.
+  // Status filtering retains children and grandchildren in other statuses.
+  await page.getByLabel('Filter by status').selectOption({ label: 'backlog' });
+  const ordered = [parentA, childA, nested, childB, unrelated, parentB, childC].map(issue => issue.issueKey);
+  await expect(keys).toHaveText(ordered);
+  await expect(page.getByRole('navigation', { name: 'Issue pagination' })).toContainText('1–7 of 7 issues');
+  await page.getByLabel('Status of ' + childA.issueKey).selectOption({ label: 'done' });
+  await expect(page.getByLabel('Status of ' + childA.issueKey)).toBeEnabled();
+  await page.reload();
+  await page.getByLabel('Filter by status').selectOption({ label: 'backlog' });
+  await page.getByRole('button', { name: 'Sort by Key', exact: true }).click();
+  await expect(keys).toHaveText(ordered);
+
+  const view = await (await page.request.post(url + '/api/projects/' + project.projectId + '/views', {
+    data: { title: 'Backlog hierarchy', filters: { statusIds: [project.issueStatuses[0]!.statusId] } },
+  })).json();
+  await page.goto(url + '/#/projects/' + project.projectId + '/views/' + view.viewId);
+  await page.reload();
+  await page.getByRole('button', { name: 'Sort by Key', exact: true }).click();
+  await expect(keys).toHaveText(ordered);
+  await expect(keys.nth(2).locator('..')).toHaveCSS('padding-inline-start', '66px');
+
+  // Search still applies: a hidden parent must not hide matching children.
+  await page.goto(url + '/#/projects/' + project.projectId);
+  await page.reload();
+  await page.getByRole('button', { name: 'Sort by Key', exact: true }).click();
   await page.getByRole('textbox', { name: 'Search issues' }).fill('child');
   await expect(keys).toHaveText([childA, nested, childB, childC].map(issue => issue.issueKey));
   await expect(keys.nth(0).locator('..')).toHaveCSS('padding-inline-start', '18px');

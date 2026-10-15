@@ -20,7 +20,7 @@ export interface StatusInput { statusId?: number; title: string; isComplete: boo
 export const ISSUE_SORT_COLUMNS = ['key', 'type', 'status', 'assignee'] as const;
 export type IssueSortColumn = typeof ISSUE_SORT_COLUMNS[number];
 export interface IssueSort { sortBy: IssueSortColumn; sortDirection: 'asc' | 'desc' }
-export interface IssueFilters extends Partial<IssueSort> { statusId?: number; search?: string; viewId?: number; labels?: string[] }
+export interface IssueFilters extends Partial<IssueSort> { statusId?: number; search?: string; viewId?: number; labels?: string[]; includeSubTasks?: boolean }
 export const ISSUE_PAGE_SIZES = [100, 500, 1000] as const;
 export type IssuePageSize = typeof ISSUE_PAGE_SIZES[number];
 export interface IssuePagination { page: number; pageSize: IssuePageSize }

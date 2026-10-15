@@ -268,6 +268,34 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.equal((await api.issuesPage(p.projectId, { page: 1, pageSize: 100 }, { labels: ['absent'] })).total, 0);
     await api.deleteProject(p.projectId);
   });
+  await t.test('sub-task status expansion respects other filters, counts, and saved views', async () => {
+    const p = await api.createProject('Expanded sub-tasks', 'EXPAND');
+    const backlog = p.issueStatuses[0]!.statusId;
+    const design = p.issueStatuses[1]!.statusId;
+    const done = p.issueStatuses.find(s => s.title === 'done')!.statusId;
+    const parent = await api.createIssue(p.projectId, { title: 'Matching parent', labels: ['work'], issueType: 'Task' });
+    const child = await api.createIssue(p.projectId, { title: 'Matching child', labels: ['work'], issueType: 'Sub-Task', parentIssueId: parent.issueId, statusId: design });
+    const nested = await api.createIssue(p.projectId, { title: 'Matching nested', labels: ['work'], issueType: 'Sub-Task', parentIssueId: child.issueId, statusId: done });
+    const sibling = await api.createIssue(p.projectId, { title: 'Matching sibling', labels: ['work'], issueType: 'Sub-Task', parentIssueId: parent.issueId });
+    const otherChild = await api.createIssue(p.projectId, { title: 'Other child', issueType: 'Sub-Task', parentIssueId: parent.issueId, statusId: done });
+    const hidden = await api.createIssue(p.projectId, { title: 'Hidden parent', labels: ['work'], statusId: design });
+    await api.createIssue(p.projectId, { title: 'Hidden child', labels: ['work'], issueType: 'Sub-Task', parentIssueId: hidden.issueId, statusId: done });
+    assert.deepEqual((await api.issues(p.projectId, { statusId: backlog, includeSubTasks: true, sortBy: 'key' })).map(i => i.issueId),
+      [parent, child, nested, sibling, otherChild].map(i => i.issueId));
+    const filters = { statusId: backlog, includeSubTasks: true, labels: ['work'], search: 'Matching', sortBy: 'key' as const };
+    const expected = [parent, child, nested, sibling].map(i => i.issueId);
+    assert.deepEqual((await api.issues(p.projectId, filters)).map(i => i.issueId), expected);
+    const page = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, filters);
+    assert.deepEqual(page.items.map(i => i.issueId), expected);
+    assert.equal(page.total, 4); assert.equal(page.complete, 1); assert.equal(page.page, 1);
+    // The CLI and other callers keep strict status filtering unless opted in.
+    assert.deepEqual((await api.issues(p.projectId, { ...filters, includeSubTasks: false })).map(i => i.issueId), [parent.issueId, sibling.issueId]);
+    const view = await api.createView(p.projectId, { title: 'Backlog work', filters: { labels: ['work'], statusIds: [backlog], issueTypes: ['Task', 'Sub-Task'] } });
+    assert.deepEqual((await api.issues(p.projectId, { ...filters, statusId: undefined, viewId: view.viewId })).map(i => i.issueId), expected);
+    await api.updateView(p.projectId, view.viewId, { filters: { ...view.filters, issueTypes: ['Task'] } });
+    assert.deepEqual((await api.issues(p.projectId, { ...filters, viewId: view.viewId })).map(i => i.issueId), [parent.issueId]);
+    await api.deleteProject(p.projectId);
+  });
   await t.test('shared saved views: combined filters, pagination, editing, project scope and deletion', async () => {
     const p = await api.createProject('Saved views', 'VIEW');
     const backlog = p.issueStatuses[0]!.statusId;

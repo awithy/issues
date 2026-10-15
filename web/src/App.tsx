@@ -96,7 +96,7 @@ export function App() {
     if (!username || !project || viewMissing) { setIssues([]); setTotal(0); setComplete(0); return; }
     let active = true; setLoading(true);
     const timeout = setTimeout(() => {
-      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined, labels: labelFilters, viewId: route.viewId, ...sort })
+      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined, labels: labelFilters, viewId: route.viewId, includeSubTasks: true, ...sort })
         .then(result => {
           if (!active) return;
           setIssues(result.items); setTotal(result.total); setComplete(result.complete); setPage(result.page);
@@ -144,7 +144,7 @@ export function App() {
               setSelectedIssueId(issue.issueId);
               if (!(event.target instanceof Element && event.target.closest('a, button, input, textarea, select, [contenteditable], [role="button"]'))) event.currentTarget.focus({ preventScroll: true });
             }}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
-              <td><IssueTypeIcon type={issue.issueType} /></td>
+              <td style={{ paddingInlineStart: 18 + depth * 24 }}><IssueTypeIcon type={issue.issueType} /></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td><select className={'status-pill ' + (issue.status.title.toLowerCase() === 'in progress' ? 'in-progress' : issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
                 try { await changeIssueStatus(issue, Number(event.target.value)); }
@@ -170,7 +170,7 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click a row to select it, or an issue key/title to edit details. Use J/K to move selection and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Press S to change status, then ↑/↓ and Enter to save (Esc cancels), or use the status dropdown. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath their parents on this page, regardless of status.</p>
+          <p className="table-hint">Click a row to select it, or an issue key/title to edit details. Use J/K to move selection and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Press S to change status, then ↑/↓ and Enter to save (Esc cancels), or use the status dropdown. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks stay visible regardless of status when their parent matches the filters, and are grouped beneath parents on this page. Other filters still apply.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {statusPickerIssue && project && <IssueStatusPicker issue={statusPickerIssue} statuses={project.issueStatuses}

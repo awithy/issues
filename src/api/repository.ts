@@ -87,17 +87,30 @@ export class Repository {
     await this.project(projectId);
     const values: unknown[] = [projectId];
     let where = ' WHERE i.project_id=$1';
+    let statusWhere = '';
     if (filters.viewId) {
       const view = await this.view(projectId, filters.viewId);
       if (view.filters.labels.length) { values.push(view.filters.labels); where += ' AND i.labels @> $' + values.length + '::text[]'; }
-      if (view.filters.statusIds.length) { values.push(view.filters.statusIds); where += ' AND i.status_id=ANY($' + values.length + '::int[])'; }
+      if (view.filters.statusIds.length) { values.push(view.filters.statusIds); statusWhere += ' AND i.status_id=ANY($' + values.length + '::int[])'; }
       if (view.filters.issueTypes.length) { values.push(view.filters.issueTypes); where += ' AND i.issue_type=ANY($' + values.length + '::text[])'; }
     }
     if (filters.labels?.length) { values.push(filters.labels); where += ' AND i.labels @> $' + values.length + '::text[]'; }
-    if (filters.statusId) { values.push(filters.statusId); where += ' AND i.status_id=$' + values.length; }
+    if (filters.statusId) { values.push(filters.statusId); statusWhere += ' AND i.status_id=$' + values.length; }
     if (filters.search) {
       values.push('%' + filters.search + '%'); const param = '$' + values.length;
       where += " AND (i.title ILIKE " + param + " OR p.key || '-' || i.issue_number ILIKE " + param + " OR i.assignee ILIKE " + param + " OR array_to_string(i.labels, ',') ILIKE " + param + ')';
+    }
+    let matching = '';
+    if (filters.includeSubTasks && statusWhere) {
+      // Expand matching parents through all descendant statuses. Other filters
+      // still apply at each level; UNION deduplicates children already matched.
+      const from = ' FROM issues i JOIN projects p USING (project_id)';
+      matching = 'WITH RECURSIVE matching_issues AS (SELECT i.issue_id' + from + where + statusWhere +
+        ' UNION SELECT i.issue_id' + from +
+        ' JOIN matching_issues parent ON i.parent_issue_id=parent.issue_id' + where + ') ';
+      where = ' WHERE i.issue_id IN (SELECT issue_id FROM matching_issues)';
+    } else {
+      where += statusWhere;
     }
     // Only allowlisted expressions and directions are interpolated into SQL.
     const sortColumns = { key: 'i.issue_number', type: 'lower(i.issue_type)', status: 's.position', assignee: "NULLIF(lower(i.assignee), '')" };
@@ -106,14 +119,14 @@ export class Repository {
     // Priority only orders within a status, even when status order is reversed.
     const orderBy = ' ORDER BY ' + sortColumns[sortBy] + ' ' + direction + ' NULLS LAST' +
       (sortBy === 'status' ? ', i.priority ASC' : '') + (sortBy === 'key' ? '' : ', i.issue_number DESC');
-    if (!pagination) return (await this.pool.query<Issue>(issueSelect + where + orderBy, values)).rows;
+    if (!pagination) return (await this.pool.query<Issue>(matching + issueSelect + where + orderBy, values)).rows;
     const counts = (await this.pool.query<{ total: number; complete: number }>(
-      'SELECT count(*)::int AS total, count(*) FILTER (WHERE s.is_complete)::int AS complete ' +
+      matching + 'SELECT count(*)::int AS total, count(*) FILTER (WHERE s.is_complete)::int AS complete ' +
       'FROM issues i JOIN projects p USING (project_id) JOIN issue_statuses s ON s.status_id=i.status_id' + where, values,
     )).rows[0]!;
     const page = Math.min(pagination.page, Math.max(1, Math.ceil(counts.total / pagination.pageSize)));
     values.push(pagination.pageSize, (page - 1) * pagination.pageSize);
-    const items = (await this.pool.query<Issue>(issueSelect + where + orderBy + ' LIMIT $' + (values.length - 1) + ' OFFSET $' + values.length, values)).rows;
+    const items = (await this.pool.query<Issue>(matching + issueSelect + where + orderBy + ' LIMIT $' + (values.length - 1) + ' OFFSET $' + values.length, values)).rows;
     return { items, ...counts, page, pageSize: pagination.pageSize };
   }
   async issue(ref: string | number, db: Db = this.pool) {
