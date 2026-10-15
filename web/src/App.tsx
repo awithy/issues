@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { ApiClient, ApiError } from '../../src/shared/client';
-import { ISSUE_PAGE_SIZES, type IssuePageSize, type IssueSort, type IssueSortColumn, type Issue, type Project, type ProjectView } from '../../src/shared/types';
+import { ISSUE_PAGE_SIZES, type IssuePageSize, type IssueSort, type IssueSortColumn, type Issue, type Project, type ProjectView, type ViewInput } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 import { IssueDetail } from './IssueDetail';
 import { IssueTypeIcon } from './IssueTypeIcon';
@@ -42,7 +42,7 @@ export function App() {
   const [changing, setChanging] = useState<number>();
   const [createProject, setCreateProject] = useState(false);
   const [settings, setSettings] = useState(false);
-  const [viewEditor, setViewEditor] = useState<{ projectId: number; view?: ProjectView }>();
+  const [viewEditor, setViewEditor] = useState<{ projectId: number; view?: ProjectView; initialView?: ViewInput }>();
   const project = projects.find(p => p.projectId === route.projectId);
   const view = project?.views.find(v => v.viewId === route.viewId);
   const viewMissing = !!route.viewId && !!project && !view;
@@ -106,7 +106,7 @@ export function App() {
         onDeleted={() => { setRevision(r => r + 1); navigate(project.projectId, undefined, route.viewId); }} />
         : <>
           <div className="page-heading"><div><div className="eyebrow">{project.key} / {view ? 'VIEW' : 'PROJECT'}</div><h1>{view?.title ?? project.title}</h1><p className="muted">{view ? 'A saved view of ' + project.title + '.' : 'Everything that needs to happen, in one place.'}</p></div>
-            <div className="heading-actions">{view && <button className="secondary" onClick={() => setViewEditor({ projectId: project.projectId, view })}>Edit view</button>}<button className="secondary" onClick={() => setSettings(true)}>Project settings</button><button className="primary" onClick={() => navigate(project.projectId, 'new', route.viewId)}>+ Create issue</button></div>
+            <div className="heading-actions">{view && <><button className="secondary" onClick={() => setViewEditor({ projectId: project.projectId, view })}>Edit view</button><button className="secondary" onClick={() => setViewEditor({ projectId: project.projectId, initialView: { title: ('Copy of ' + view.title).slice(0, 300), filters: view.filters } })}>Duplicate view</button></>}<button className="secondary" onClick={() => setSettings(true)}>Project settings</button><button className="primary" onClick={() => navigate(project.projectId, 'new', route.viewId)}>+ Create issue</button></div>
           </div>
           {view && <p className="view-summary muted small">Labels (all): {view.filters.labels.join(', ') || 'Any'} · Statuses (any): {view.filters.statusIds.map(id => project.issueStatuses.find(s => s.statusId === id)?.title ?? id).join(', ') || 'Any'} · Types (any): {view.filters.issueTypes.join(', ') || 'Any'}</p>}
           <div className="table-toolbar"><div className="toolbar-left"><h2>Issues <span className="count">{total}</span></h2><span className="divider" /><span className="muted small">{complete} complete</span></div>
@@ -145,7 +145,7 @@ export function App() {
           <p className="table-hint">Click an issue to edit details. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Sub-Tasks are grouped beneath parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
-    {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} onClose={() => setViewEditor(undefined)}
+    {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} initialView={viewEditor.initialView} onClose={() => setViewEditor(undefined)}
       onSaved={async saved => { await refreshProjects(); setRevision(r => r + 1); navigate(saved.projectId, undefined, saved.viewId); }}
       onDeleted={async () => { await refreshProjects(); setRevision(r => r + 1); navigate(editorProject.projectId); }} />}
     {createProject && <CreateProject api={api} onClose={() => setCreateProject(false)} onCreated={async p => { await refreshProjects(); navigate(p.projectId); }} />}

@@ -135,12 +135,14 @@ The CLI saves login information in `~/.config/minimal-issues/session.json`. Over
 
 ### Saved views
 
-Click **+ New view** beneath a project in the sidebar, give it a title, and choose its filters. Views use the same issue table; **Edit view** changes the title/filters or deletes the view without deleting issues. Filters combine with AND across categories; an empty category matches everything. Labels are exact and case-sensitive. Views persist in the database and are shared with all users.
+Click **+ New view** beneath a project in the sidebar, give it a title, and choose its filters. Views use the same issue table; **Edit view** changes the title/filters or deletes the view without deleting issues. **Duplicate view** opens a copy with the same saved filters and a default “Copy of …” title; edit it if needed, then create it in the same project. The original view and issues are unchanged. Filters combine with AND across categories; an empty category matches everything. Labels are exact and case-sensitive. Views persist in the database and are shared with all users.
 
 ```sh
 issctl view create WEB "Urgent work" --labels frontend,urgent \
   --statuses "backlog,in progress" --issue-types Bug,Task
 issctl view list WEB
+issctl view duplicate WEB 1
+issctl view duplicate WEB 1 --title "Frontend copy"
 issctl issue list WEB --view 1
 issctl view update WEB 1 --title "Frontend work" --labels frontend
 issctl view delete WEB 1 --yes

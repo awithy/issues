@@ -1,16 +1,17 @@
 import { useState, type FormEvent } from 'react';
 import type { ApiClient } from '../../src/shared/client';
-import { ISSUE_TYPES, type Project, type ProjectView } from '../../src/shared/types';
+import { ISSUE_TYPES, type Project, type ProjectView, type ViewInput } from '../../src/shared/types';
 import { ErrorNotice, Modal, message } from './ui';
 
-export function ViewSettings({ api, project, view, onClose, onSaved, onDeleted }: {
-  api: ApiClient; project: Project; view?: ProjectView; onClose: () => void;
+export function ViewSettings({ api, project, view, initialView, onClose, onSaved, onDeleted }: {
+  api: ApiClient; project: Project; view?: ProjectView; initialView?: ViewInput; onClose: () => void;
   onSaved: (view: ProjectView) => Promise<void>; onDeleted: () => Promise<void>;
 }) {
-  const [title, setTitle] = useState(view?.title ?? '');
-  const [labels, setLabels] = useState(view?.filters.labels.join(', ') ?? '');
-  const [statusIds, setStatusIds] = useState(view?.filters.statusIds ?? []);
-  const [issueTypes, setIssueTypes] = useState(view?.filters.issueTypes ?? []);
+  const initial = view ?? initialView;
+  const [title, setTitle] = useState(initial?.title ?? '');
+  const [labels, setLabels] = useState(initial?.filters.labels.join(', ') ?? '');
+  const [statusIds, setStatusIds] = useState(initial?.filters.statusIds ?? []);
+  const [issueTypes, setIssueTypes] = useState(initial?.filters.issueTypes ?? []);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   async function save(event: FormEvent) {
@@ -21,7 +22,7 @@ export function ViewSettings({ api, project, view, onClose, onSaved, onDeleted }
       await onSaved(saved); onClose();
     } catch (error) { setError(message(error)); } finally { setBusy(false); }
   }
-  return <Modal title={view ? 'Edit view' : 'Create view'} onClose={onClose}>
+  return <Modal title={view ? 'Edit view' : initialView ? 'Duplicate view' : 'Create view'} onClose={onClose}>
     <ErrorNotice error={error} />
     <form onSubmit={save}>
       <label className="field">View title<input autoFocus required maxLength={300} value={title} onChange={event => setTitle(event.target.value)} /></label>

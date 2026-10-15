@@ -130,6 +130,13 @@ viewOptions(views.command('update <project> <view-id>').option('--title <title>'
   }
   print(await client.updateView(p.projectId, Number(id), data));
 });
+views.command('duplicate <project> <view-id>').description('Copy a saved view within its project')
+  .option('--title <title>', 'Title for the copy (defaults to Copy of <original title>)')
+  .action(async (ref, id, options) => {
+    const p = await project(ref); const client = await api();
+    const source = await client.view(p.projectId, Number(id));
+    print(await client.createView(p.projectId, { title: options.title ?? ('Copy of ' + source.title).slice(0, 300), filters: source.filters }));
+  });
 views.command('delete <project> <view-id>').option('--yes', 'Confirm permanent view deletion (issues are unchanged)').action(async (ref, id, options) => {
   confirm(options); await (await api()).deleteView((await project(ref)).projectId, Number(id)); console.log('View permanently deleted');
 });

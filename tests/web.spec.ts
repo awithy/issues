@@ -231,7 +231,7 @@ test('Sub-Tasks are grouped and indented under visible parents', async ({ page }
   for (const [issue, depth] of [[parentA, 0], [childA, 1], [nested, 2]] as const) {
     const cells = page.locator('.issues-table tbody tr').filter({ has: page.getByRole('link', { name: issue.issueKey, exact: true }) }).locator('td');
     await expect(cells.nth(0)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
-    await expect(cells.nth(1)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
+    await expect(cells.nth(2)).toHaveCSS('padding-inline-start', `${18 + depth * 24}px`);
   }
   await page.getByRole('button', { name: 'Sort by Key', exact: true }).click();
   await expect(keys).toHaveText([parentA, childA, nested, childB, unrelated, parentB, childC].map(issue => issue.issueKey));
@@ -556,6 +556,46 @@ test('saved views: sidebar, persisted filters, shared table and editing/deletion
   await expect(rows).toHaveCount(5);
   await page.goto(viewUrl);
   await expect(page.getByRole('heading', { name: 'View not found', exact: true })).toBeVisible();
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
+test('duplicating a view copies saved filters and leaves the original independent', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Duplicate views', key: 'COPY' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/views';
+  const filters = { labels: ['frontend', 'urgent'], statusIds: [project.issueStatuses[0]!.statusId], issueTypes: ['Bug', 'Task'] };
+  const source = await (await page.request.post(endpoint, { data: { title: 'Urgent work', filters } })).json();
+  await page.request.post(url + '/api/projects/' + project.projectId + '/issues', { data: { title: 'Matching bug', labels: filters.labels, issueType: 'Bug' } });
+  await page.goto(url + '/#/projects/' + project.projectId + '/views/' + source.viewId);
+  const dialog = page.getByRole('dialog', { name: 'Duplicate view', exact: true });
+  await page.getByRole('button', { name: 'Duplicate view', exact: true }).click();
+  await expect(dialog.getByLabel('View title', { exact: true })).toHaveValue('Copy of Urgent work');
+  await expect(dialog.getByLabel('Labels', { exact: true })).toHaveValue('frontend, urgent');
+  await expect(dialog.getByRole('checkbox', { name: 'backlog', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'done', exact: true })).not.toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'Bug', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'Task', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('button', { name: 'Permanently delete view', exact: true })).toHaveCount(0);
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(await (await page.request.get(endpoint)).json()).toHaveLength(1);
+  await page.getByRole('button', { name: 'Duplicate view', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Create view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Copy of Urgent work', exact: true })).toBeVisible();
+  const copyUrl = page.url();
+  expect(copyUrl).not.toBe(url + '/#/projects/' + project.projectId + '/views/' + source.viewId);
+  await expect(page.getByRole('link', { name: 'Copy of Urgent work', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(page.locator('.issues-table tbody tr')).toHaveCount(1);
+  await page.reload();
+  await page.getByRole('button', { name: 'Edit view', exact: true }).click();
+  const editor = page.getByRole('dialog', { name: 'Edit view', exact: true });
+  await editor.getByLabel('View title', { exact: true }).fill('Independent copy');
+  await editor.getByLabel('Labels', { exact: true }).fill('different');
+  await editor.getByRole('button', { name: 'Save view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Independent copy', exact: true })).toBeVisible();
+  await expect(page.locator('.issues-table tbody tr')).toHaveCount(0);
+  expect(await (await page.request.get(endpoint + '/' + source.viewId)).json()).toEqual(source);
+  await page.getByRole('link', { name: 'Urgent work', exact: true }).click();
+  await expect(page.locator('.issues-table tbody tr')).toHaveCount(1);
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
