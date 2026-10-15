@@ -120,6 +120,10 @@ export class Repository {
     const row = (await db.query<Issue>(issueSelect + ' WHERE ' + issueWhere(ref), [ref])).rows[0];
     if (!row) throw new HttpError(404, 'Issue not found'); return row;
   }
+  async subTasks(ref: string | number) {
+    const parent = await this.issue(ref);
+    return (await this.pool.query<Issue>(issueSelect + ' WHERE i.parent_issue_id=$1 ORDER BY p.key, s.position, i.priority, i.issue_number DESC', [parent.issueId])).rows;
+  }
   async validateParent(db: Db, issueType: string, parentIssueId: number | null, issueId?: number) {
     if ((issueType === 'Sub-Task') !== (parentIssueId !== null)) throw new HttpError(400, 'Only Sub-Tasks can have a parent, and Sub-Tasks must have a parent');
     if (parentIssueId === null) return;

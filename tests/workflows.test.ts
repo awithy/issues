@@ -345,6 +345,29 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await api.deleteProject(other.projectId);
     await api.deleteProject(p.projectId); // Parent and child are both removed in one cascade.
   });
+  await t.test('parent sub-task listings include direct children across statuses and projects', async () => {
+    const p = await api.createProject('Sub-task listing', 'CHILDREN');
+    const other = await api.createProject('External children', 'EXTERNAL');
+    const parent = await api.createIssue(p.projectId, { title: 'Parent' });
+    assert.deepEqual(await api.subTasks(parent.issueKey), []);
+    const create = (title: string, priority: number, statusId = p.issueStatuses[0]!.statusId) => api.createIssue(p.projectId, {
+      title, priority, statusId, issueType: 'Sub-Task', parentIssueId: parent.issueId,
+    });
+    const later = await create('Later priority', 5);
+    const first = await create('First priority', 1);
+    const done = await create('Completed child', -10, p.issueStatuses[4]!.statusId);
+    const external = await api.createIssue(other.projectId, { title: 'External child', issueType: 'Sub-Task', parentIssueId: parent.issueId });
+    await api.createIssue(p.projectId, { title: 'Not a child' });
+    await api.createIssue(p.projectId, { title: 'Grandchild', issueType: 'Sub-Task', parentIssueId: first.issueId });
+    assert.deepEqual((await api.subTasks(parent.issueKey)).map(i => i.issueId), [first, later, done, external].map(i => i.issueId));
+    assert.deepEqual(await api.subTasks(parent.issueId), await api.subTasks(parent.issueKey));
+    await api.updateIssue(later.issueId, { parentIssueId: first.issueId });
+    await api.deleteIssue(done.issueId);
+    assert.deepEqual((await api.subTasks(parent.issueId)).map(i => i.issueId), [first.issueId, external.issueId]);
+    await api.deleteProject(other.projectId);
+    await api.deleteProject(p.projectId);
+    await assert.rejects(api.subTasks(parent.issueId), failure(404));
+  });
   await t.test('undirected issue links across projects, unlinking, and deletion cleanup', async () => {
     const p = await api.createProject('Links', 'LINK');
     const other = await api.createProject('Related work', 'REL');

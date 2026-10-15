@@ -271,6 +271,73 @@ test('issue row bulk-adds sub-tasks with a design status and supports a single n
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('parent details show and manage sub-tasks across statuses and projects', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Parent details', key: 'DETAIL' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const parent = await (await page.request.post(endpoint, { data: { title: 'Parent task', issueType: 'Story' } })).json() as Issue;
+  const parentUrl = url + '/#/projects/' + project.projectId + '/issues/' + parent.issueKey;
+  await page.goto(parentUrl);
+  const section = page.getByRole('region', { name: 'Sub-tasks', exact: false });
+  await expect(section).toContainText('No sub-tasks yet.');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Unsaved parent title');
+  const add = section.getByRole('button', { name: 'Add sub-tasks to ' + parent.issueKey });
+  await add.click();
+  await page.getByRole('dialog').getByRole('textbox', { name: 'Sub-task titles' }).fill('Canceled child');
+  await page.keyboard.press('Escape');
+  await expect(page).toHaveURL(parentUrl);
+  await expect(section).toContainText('No sub-tasks yet.');
+  await add.click();
+  await page.getByRole('dialog').getByRole('textbox', { name: 'Sub-task titles' }).fill('First child\nSecond child');
+  await page.getByRole('dialog').getByRole('button', { name: 'Create 2 sub-tasks', exact: true }).click();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(section.getByRole('row')).toHaveCount(3);
+  await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('Unsaved parent title');
+  const issues = await (await page.request.get(endpoint)).json() as Issue[];
+  const first = issues.find(i => i.title === 'First child')!;
+  const second = issues.find(i => i.title === 'Second child')!;
+  expect(first.parentIssueId).toBe(parent.issueId);
+  await expect(section.getByLabel('Status of ' + first.issueKey)).toHaveValue(String(project.issueStatuses[1]!.statusId));
+  await section.getByLabel('Status of ' + first.issueKey).selectOption(String(project.issueStatuses[4]!.statusId));
+  await expect(section.getByLabel('Status of ' + first.issueKey)).toBeEnabled();
+  await expect.poll(async () => (await (await page.request.get(url + '/api/issues/' + first.issueId)).json() as Issue).status.title).toBe('done');
+
+  // Full edits and returning through the parent link refresh the parent's list.
+  await section.getByRole('link', { name: 'First child', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue('First child');
+  await page.getByRole('textbox', { name: 'Title', exact: true }).fill('Edited child');
+  await page.getByLabel('Assignee', { exact: true }).fill('Alice');
+  await page.getByRole('button', { name: 'Save changes', exact: true }).click();
+  await expect(page.getByRole('status')).toHaveText('Changes saved');
+  const other = await (await page.request.post(url + '/api/projects', { data: { title: 'Other children', key: 'CROSSCHILD' } })).json() as Project;
+  const external = await (await page.request.post(url + '/api/projects/' + other.projectId + '/issues', { data: {
+    title: 'Cross-project child', issueType: 'Sub-Task', parentIssueId: parent.issueId, assignee: 'Bob',
+  } })).json() as Issue;
+  // Reload to pick up the new project's configuration, then return to the parent.
+  await page.reload();
+  await page.getByRole('link', { name: 'View parent ' + parent.issueKey }).click();
+  await expect(section.getByRole('row')).toHaveCount(4);
+  await expect(section.getByRole('row').filter({ hasText: 'Edited child' })).toContainText('Alice');
+  await expect(section.getByRole('link', { name: 'Cross-project child', exact: true })).toHaveAttribute('href', '#/projects/' + other.projectId + '/issues/' + external.issueKey);
+  await section.getByLabel('Status of ' + external.issueKey).selectOption(String(other.issueStatuses[3]!.statusId));
+  await expect(section.getByLabel('Status of ' + external.issueKey)).toBeEnabled();
+  await expect.poll(async () => (await (await page.request.get(url + '/api/issues/' + external.issueId)).json() as Issue).status.title).toBe('in progress');
+
+  page.once('dialog', dialog => dialog.dismiss());
+  await section.getByRole('button', { name: 'Delete sub-task ' + second.issueKey, exact: true }).click();
+  await expect(section.getByRole('link', { name: 'Second child', exact: true })).toBeVisible();
+  for (const child of [second, first, external]) {
+    page.once('dialog', dialog => dialog.accept());
+    await section.getByRole('button', { name: 'Delete sub-task ' + child.issueKey, exact: true }).click();
+    await expect(section.getByRole('link', { name: child.issueKey, exact: true })).toHaveCount(0);
+  }
+  await expect(section).toContainText('No sub-tasks yet.');
+  await page.reload();
+  await expect(section).toContainText('No sub-tasks yet.');
+  await page.request.delete(url + '/api/projects/' + other.projectId);
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('bulk sub-task creation validates titles and retains only unsaved titles after a failure', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Retry sub-tasks', key: 'RETRY' } })).json() as Project;

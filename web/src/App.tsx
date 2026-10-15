@@ -125,7 +125,7 @@ export function App() {
       {!projects.length && <p className="muted small">{projectsLoading ? 'Loading projects…' : 'Your projects will appear here.'}</p>}
     </aside>
     <main className="main-content"><ErrorNotice error={error} />
-      {viewMissing ? <div className="welcome"><h1>View not found</h1><a href={'#/projects/' + project!.projectId}>Back to project</a></div> : project ? route.issue ? <IssueDetail key={route.issue} api={api} project={project} issueKey={route.issue === 'new' ? undefined : route.issue}
+      {viewMissing ? <div className="welcome"><h1>View not found</h1><a href={'#/projects/' + project!.projectId}>Back to project</a></div> : project ? route.issue ? <IssueDetail key={route.issue} api={api} project={project} projects={projects} issueKey={route.issue === 'new' ? undefined : route.issue}
         onBack={() => navigate(project.projectId, undefined, route.viewId)} onSaved={issue => { setRevision(r => r + 1); if (route.issue === 'new') navigate(project.projectId, issue.issueKey, route.viewId); }}
         onDeleted={() => { setRevision(r => r + 1); navigate(project.projectId, undefined, route.viewId); }} />
         : <>

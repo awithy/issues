@@ -4,13 +4,14 @@ import type { Attachment, Issue, IssueInput, IssueType, Project } from '../../sr
 import { ISSUE_TYPES } from '../../src/shared/types';
 import { ErrorNotice, MarkdownField, message } from './ui';
 import { IssueLinks } from './IssueLinks';
+import { IssueSubTasks } from './IssueSubTasks';
 import { ImageAttachments } from './ImageAttachments';
 function localDateTime(value: string) {
   const date = new Date(value);
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, -1);
 }
-export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted }: {
-  api: ApiClient; project: Project; issueKey?: string; onBack: () => void;
+export function IssueDetail({ api, project, projects, issueKey, onBack, onSaved, onDeleted }: {
+  api: ApiClient; project: Project; projects: Project[]; issueKey?: string; onBack: () => void;
   onSaved: (issue: Issue) => void; onDeleted: () => void;
 }) {
   const [issue, setIssue] = useState<Issue>();
@@ -114,6 +115,8 @@ export function IssueDetail({ api, project, issueKey, onBack, onSaved, onDeleted
           {saved && <span role="status" className="success">Changes saved</span>}<span className="muted small">Description and Notes support Markdown.</span>
         </div>
       </form>
+      {issue ? <IssueSubTasks api={api} issue={issue} project={project} projects={projects} />
+        : <section className="attachments card"><h3>Sub-tasks</h3><p className="muted">Create the issue before adding sub-tasks.</p></section>}
       {issue ? <IssueLinks api={api} issue={issue} onChanged={linkedIssues => setIssue(previous => previous ? { ...previous, linkedIssues } : previous)} />
         : <section className="attachments card"><h3>Linked issues</h3><p className="muted">Create the issue before linking other issues.</p></section>}
       <section className="attachments card"><div className="field-heading"><h3>Attachments <span className="count">{attachments.length}</span></h3>
