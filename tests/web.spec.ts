@@ -370,24 +370,24 @@ test('bulk sub-task creation validates titles and retains only unsaved titles af
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
-test('Sub-Tasks are grouped and indented under visible parents', async ({ page }) => {
+test('Sub-Tasks are grouped and indented under visible parents across statuses', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Hierarchical work', key: 'TREE' } })).json() as Project;
   const endpoint = url + '/api/projects/' + project.projectId + '/issues';
-  async function create(title: string, parent?: Issue) {
+  async function create(title: string, parent?: Issue, statusId = project.issueStatuses[0]!.statusId) {
     const response = await page.request.post(endpoint, { data: {
-      title, issueType: parent ? 'Sub-Task' : 'Task', parentIssueId: parent?.issueId,
+      title, statusId, issueType: parent ? 'Sub-Task' : 'Task', parentIssueId: parent?.issueId,
     } });
     expect(response.ok()).toBeTruthy();
     return await response.json() as Issue;
   }
   const parentA = await create('Parent A');
-  const childA = await create('Child A', parentA);
+  const childA = await create('Child A', parentA, project.issueStatuses[1]!.statusId);
   const unrelated = await create('Unrelated task');
   const parentB = await create('Parent B');
   const childB = await create('Child B', parentA);
   const childC = await create('Child C', parentB);
-  const nested = await create('Nested child', childA);
+  const nested = await create('Nested child', childA, project.issueStatuses.find(s => s.title === 'done')!.statusId);
   await page.goto(url + '/#/projects/' + project.projectId);
   const keys = page.locator('.issues-table tbody .issue-key');
   await expect(keys).toHaveText([parentB, childC, unrelated, parentA, childB, childA, nested].map(issue => issue.issueKey));
@@ -408,7 +408,7 @@ test('Sub-Tasks are grouped and indented under visible parents', async ({ page }
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
-test('priority orders roots and sibling sub-tasks within statuses, never across statuses', async ({ page }) => {
+test('priority orders roots and siblings within statuses while children stay under their parent', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Prioritized work', key: 'PRIO' } })).json() as Project;
   const endpoint = url + '/api/projects/' + project.projectId + '/issues';
@@ -426,12 +426,13 @@ test('priority orders roots and sibling sub-tasks within statuses, never across 
   const later = await create('Child in a later status', -100, parent, project.issueStatuses[1]!.statusId);
   await page.goto(url + '/#/projects/' + project.projectId);
   const keys = page.locator('.issues-table tbody .issue-key');
-  await expect(keys).toHaveText([parent, first, second, otherParent, later].map(i => i.issueKey));
+  await expect(keys).toHaveText([parent, first, second, later, otherParent].map(i => i.issueKey));
   await expect(page.getByRole('columnheader', { name: 'Priority', exact: true })).toBeVisible();
-  await expect(page.locator('.issues-table tbody tr td:nth-child(5)')).toHaveText(['10', '1', '5', '20', '-100']);
-  await expect(keys.last().locator('..')).toHaveCSS('padding-inline-start', '18px');
+  await expect(page.locator('.issues-table tbody tr td:nth-child(5)')).toHaveText(['10', '1', '5', '-100', '20']);
+  await expect(keys.nth(3).locator('..')).toHaveCSS('padding-inline-start', '42px');
   await page.getByRole('button', { name: 'Sort by Status', exact: true }).click();
-  await expect(keys).toHaveText([later, parent, first, second, otherParent].map(i => i.issueKey));
+  await expect(keys).toHaveText([parent, later, first, second, otherParent].map(i => i.issueKey));
+  await expect(keys.nth(1).locator('..')).toHaveCSS('padding-inline-start', '42px');
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
