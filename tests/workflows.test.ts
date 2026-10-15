@@ -178,6 +178,41 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.request('/issues/' + high.issueId, { method: 'PATCH', body: JSON.stringify({ priority: null }) }), failure(400));
     await api.deleteProject(p.projectId);
   });
+  await t.test('priority adjustments swap neighbors and shift collision chains only within a project/status', async () => {
+    const p = await api.createProject('Priority shortcuts', 'MOVE');
+    const first = await api.createIssue(p.projectId, { title: 'First', priority: 1 });
+    const selected = await api.createIssue(p.projectId, { title: 'Selected', priority: 2 });
+    const third = await api.createIssue(p.projectId, { title: 'Third', priority: 3 });
+    const later = await api.createIssue(p.projectId, { title: 'Other status', priority: 1, statusId: p.issueStatuses[1]!.statusId });
+    const other = await api.createProject('Other priorities', 'MOVEOTHER');
+    const unrelated = await api.createIssue(other.projectId, { title: 'Other project', priority: 1 });
+    const priorities = async (...issues: Issue[]) => Promise.all(issues.map(async i => (await api.issue(i.issueId)).priority));
+
+    assert.equal((await api.adjustIssuePriority(selected.issueKey, -1)).priority, 1);
+    assert.deepEqual(await priorities(first, selected, third), [2, 1, 3]);
+    await api.adjustIssuePriority(selected.issueId, 1);
+    assert.deepEqual(await priorities(first, selected, third), [1, 2, 3]);
+    await api.adjustIssuePriority(selected.issueId, 1);
+    assert.deepEqual(await priorities(first, selected, third), [1, 3, 2]);
+    await api.adjustIssuePriority(selected.issueId, -1);
+    assert.deepEqual(await priorities(first, selected, third), [1, 2, 3]);
+
+    // A tie at the vacated value makes the displacement continue to the next gap.
+    const tie = await api.createIssue(p.projectId, { title: 'Tied', priority: 2 });
+    const distant = await api.createIssue(p.projectId, { title: 'Beyond gap', priority: 10 });
+    await api.adjustIssuePriority(selected.issueId, -1);
+    assert.deepEqual(await priorities(first, selected, tie, third, distant), [2, 1, 3, 4, 10]);
+    assert.deepEqual(await priorities(later, unrelated), [1, 1]);
+    await api.adjustIssuePriority(selected.issueId, -1);
+    await api.adjustIssuePriority(selected.issueId, -1);
+    assert.equal((await api.issue(selected.issueId)).priority, -1);
+
+    await api.updateIssue(selected.issueId, { priority: -2147483648 });
+    await assert.rejects(api.adjustIssuePriority(selected.issueId, -1), failure(409));
+    assert.equal((await api.issue(selected.issueId)).priority, -2147483648);
+    await api.deleteProject(p.projectId);
+    await api.deleteProject(other.projectId);
+  });
   await t.test('label filters: exact matches, combined labels, counts, and saved views', async () => {
     const p = await api.createProject('Label filters', 'LABEL');
     const done = p.issueStatuses.find(s => s.title === 'done')!.statusId;

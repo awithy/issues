@@ -177,6 +177,40 @@ export class Repository {
       return this.issue(current.issueId, db);
     });
   }
+  async adjustIssuePriority(ref: string | number, delta: -1 | 1) {
+    return transaction(this.pool, async db => {
+      const initial = await this.issue(ref, db);
+      await db.query('SELECT project_id FROM projects WHERE project_id=$1 FOR UPDATE', [initial.projectId]);
+      const current = await this.issue(ref, db);
+      const priority = current.priority + delta;
+      const checkRange = (value: number) => {
+        if (value < -2147483648 || value > 2147483647) throw new HttpError(409, 'Priority limit reached');
+      };
+      checkRange(priority);
+      // Include hidden/off-page issues, but never shift another project or status.
+      const { rows } = await db.query<{ issue_id: number; priority: number }>(
+        'SELECT issue_id, priority FROM issues WHERE project_id=$1 AND status_id=$2 AND issue_id<>$3',
+        [current.projectId, current.status.statusId, current.issueId],
+      );
+      const occupied = new Map<number, number[]>();
+      for (const row of rows) {
+        const ids = occupied.get(row.priority) ?? [];
+        ids.push(row.issue_id);
+        occupied.set(row.priority, ids);
+      }
+      const affected = [current.issueId];
+      // Displace conflicts opposite to the move, stopping at the first free value.
+      for (let cursor = priority; occupied.has(cursor); cursor -= delta) {
+        checkRange(cursor - delta);
+        affected.push(...occupied.get(cursor)!);
+      }
+      await db.query(
+        'UPDATE issues SET priority=CASE WHEN issue_id=$1 THEN $2::integer ELSE priority-$3::integer END, updated_at=now() WHERE issue_id=ANY($4::integer[])',
+        [current.issueId, priority, delta, affected],
+      );
+      return this.issue(current.issueId, db);
+    });
+  }
   async deleteIssue(ref: string | number) {
     const issue = await this.issue(ref);
     await this.pool.query('DELETE FROM issues WHERE issue_id=$1', [issue.issueId]);

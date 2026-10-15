@@ -54,6 +54,11 @@ export function App() {
   const selectedIssueId = useIssueTableKeyboard({
     tableKey, tableRef, rows: issueRows, enabled: !!tableKey && !route.issue && !loading,
     onOpen: issue => navigate(project!.projectId, issue.issueKey, route.viewId),
+    onAdjustPriority: async (issue, delta) => {
+      setError('');
+      try { await api.adjustIssuePriority(issue.issueId, delta); setRevision(r => r + 1); }
+      catch (error) { setError(message(error)); }
+    },
   });
   const editorProject = projects.find(p => p.projectId === viewEditor?.projectId);
   useEffect(() => {
@@ -152,7 +157,7 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click an issue to edit details. Use J/K to select a row and Enter to open it. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath same-status parents on this page.</p>
+          <p className="table-hint">Click an issue to edit details. Use J/K to select a row and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath same-status parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {subTaskParent && project && <AddSubTasks api={api} project={project} parent={subTaskParent} onClose={() => setSubTaskParent(undefined)} onCreated={() => setRevision(r => r + 1)} />}

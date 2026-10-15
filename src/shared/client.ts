@@ -51,6 +51,7 @@ export class ApiClient {
   issue(id: number | string) { return this.request<Issue>('/issues/' + encodeURIComponent(id)); }
   createIssue(projectId: number, data: CreateIssueInput) { return this.request<Issue>('/projects/' + projectId + '/issues', { method: 'POST', body: JSON.stringify(data) }); }
   updateIssue(id: number | string, data: UpdateIssueInput) { return this.request<Issue>('/issues/' + encodeURIComponent(id), { method: 'PATCH', body: JSON.stringify(data) }); }
+  adjustIssuePriority(id: number | string, delta: -1 | 1) { return this.request<Issue>('/issues/' + encodeURIComponent(id) + '/priority', { method: 'POST', body: JSON.stringify({ delta }) }); }
   deleteIssue(id: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id), { method: 'DELETE' }); }
   linkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'PUT' }); }
   unlinkIssue(id: number | string, other: number | string) { return this.request<void>('/issues/' + encodeURIComponent(id) + '/links/' + encodeURIComponent(other), { method: 'DELETE' }); }

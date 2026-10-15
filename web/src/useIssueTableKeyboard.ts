@@ -1,14 +1,16 @@
-import { useEffect, useState, type RefObject } from 'react';
+import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Issue } from '../../src/shared/types';
 import type { IssueRow } from './issueRows';
 
-export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpen }: {
+export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpen, onAdjustPriority }: {
   tableKey: string | undefined;
   tableRef: RefObject<HTMLDivElement | null>;
   rows: IssueRow[];
   enabled: boolean;
   onOpen: (issue: Issue) => void;
+  onAdjustPriority: (issue: Issue, delta: -1 | 1) => Promise<void>;
 }) {
+  const adjustingPriority = useRef(false);
   const [selectedId, setSelectedId] = useState<number>();
   useEffect(() => { setSelectedId(undefined); }, [tableKey]);
   useEffect(() => {
@@ -22,7 +24,15 @@ export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpe
       const target = event.target;
       if (target instanceof HTMLElement && (target.isContentEditable || target.closest('input, textarea, select'))) return;
       const key = event.key.toLowerCase();
-      if (key === 'enter') {
+      if (event.shiftKey && (key === 'j' || key === 'k')) {
+        const selected = rows.find(({ issue }) => issue.issueId === selectedId);
+        if (!selected) return;
+        event.preventDefault();
+        if (event.repeat || adjustingPriority.current) return;
+        adjustingPriority.current = true;
+        void onAdjustPriority(selected.issue, key === 'k' ? -1 : 1)
+          .finally(() => { adjustingPriority.current = false; });
+      } else if (key === 'enter') {
         // Keep native activation for links and buttons, even when a row is selected.
         if (target instanceof Element && target.closest('a, button, summary, [role="button"]')) return;
         const selected = rows.find(({ issue }) => issue.issueId === selectedId);
@@ -43,7 +53,7 @@ export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpe
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [enabled, rows, selectedId, tableRef, onOpen]);
+  }, [enabled, rows, selectedId, tableRef, onOpen, onAdjustPriority]);
 
   return selectedId;
 }

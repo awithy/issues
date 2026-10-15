@@ -583,6 +583,68 @@ test('J/K select displayed issue rows and Enter opens details without intercepti
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('Shift+K/J adjust the selected priority, retain selection, and include hidden conflicts', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Priority keyboard', key: 'PKEY' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const issues: Issue[] = [];
+  for (const priority of [1, 2, 3]) {
+    issues.push(await (await page.request.post(endpoint, { data: { title: 'Priority ' + priority, priority, labels: priority === 2 ? ['selected'] : [] } })).json() as Issue);
+  }
+  const [first, middle, third] = issues as [Issue, Issue, Issue];
+  await page.request.post(url + '/api/projects/' + project.projectId + '/views', { data: { title: 'Selected only', filters: { labels: ['selected'] } } });
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const table = page.locator('.table-wrap');
+  const rows = page.locator('.issues-table tbody tr');
+  const selected = rows.filter({ has: page.locator('.issue-key', { hasText: middle.issueKey }) });
+  const priorityOf = (issue: Issue) => page.locator(`.issues-table tr[data-issue-id="${issue.issueId}"] td`).nth(4);
+  await expect(rows).toHaveCount(3);
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await page.keyboard.press('Shift+K'); // No selection: no implicit selection or mutation.
+  await expect(rows.locator('.issue-key')).toHaveText(issues.map(i => i.issueKey));
+  await expect(page.locator('.issues-table tr[aria-current="true"]')).toHaveCount(0);
+  await page.keyboard.press('j');
+  await page.keyboard.press('j');
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+
+  await page.keyboard.press('Shift+K');
+  await expect(rows.locator('.issue-key')).toHaveText([middle.issueKey, first.issueKey, third.issueKey]);
+  await expect(priorityOf(middle)).toHaveText('1');
+  await expect(priorityOf(first)).toHaveText('2');
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+  await expect(selected).toBeFocused();
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await page.keyboard.press('Shift+J');
+  await expect(rows.locator('.issue-key')).toHaveText(issues.map(i => i.issueKey));
+  await expect(priorityOf(middle)).toHaveText('2');
+  await expect(priorityOf(first)).toHaveText('1');
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+
+  // Typing and open dialogs must not change a selected issue's priority.
+  const search = page.getByRole('textbox', { name: 'Search issues' });
+  await search.focus();
+  await page.keyboard.press('Shift+K');
+  await expect(search).toHaveValue('K');
+  await search.fill('');
+  await page.getByRole('button', { name: 'Project settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Close dialog' }).focus();
+  await page.keyboard.press('Shift+J');
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  expect((await (await page.request.get(url + '/api/issues/' + middle.issueId)).json()).priority).toBe(2);
+
+  await page.getByRole('link', { name: 'Selected only', exact: true }).click();
+  await expect(rows).toHaveCount(1);
+  await expect(table).toHaveAttribute('aria-busy', 'false');
+  await page.keyboard.press('j');
+  await page.keyboard.press('Shift+K');
+  await expect(priorityOf(middle)).toHaveText('1');
+  await expect(selected).toHaveAttribute('aria-current', 'true');
+  expect((await (await page.request.get(url + '/api/issues/' + first.issueId)).json()).priority).toBe(2);
+  await page.reload();
+  await expect(priorityOf(middle)).toHaveText('1');
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('keyboard selection scrolls the selected issue into view', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Keyboard scrolling', key: 'KSCROLL' } })).json() as Project;
