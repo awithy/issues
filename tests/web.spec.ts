@@ -374,6 +374,9 @@ test('issue sorting: all sortable headers, both directions, and returning from d
   await page.request.post(endpoint, { data: { title: 'Sort D', issueNumber: 20 } });
   await page.goto(url + '/#/projects/' + project.projectId);
   const keys = page.locator('.issues-table tbody .issue-key');
+  await expect(page.locator('.issues-table th')).toContainText(['Key', 'Type', 'Title', 'Status', 'Assignee', 'Labels']);
+  await expect(page.locator('.issues-table tbody tr').filter({ hasText: 'Sort A' }).locator('td').nth(1)).toHaveText('Bug');
+  await expect(page.locator('.issues-table tbody tr').filter({ hasText: 'Sort A' }).locator('td').nth(2)).toHaveText('Sort A');
   await expect(page.getByRole('button', { name: 'Sort by Status', exact: true }).locator('..')).toHaveAttribute('aria-sort', 'ascending');
   await expect(keys).toHaveText(['SORT-20', 'SORT-10', 'SORT-11', 'SORT-2']);
   const orders = [
