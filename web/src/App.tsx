@@ -97,7 +97,6 @@ export function App() {
         </div>
       </div>)}</nav>
       {!projects.length && <p className="muted small">{projectsLoading ? 'Loading projects…' : 'Your projects will appear here.'}</p>}
-      <button className="new-project-link" onClick={() => setCreateProject(true)}>+ New project</button>
     </aside>
     <main className="main-content"><ErrorNotice error={error} />
       {viewMissing ? <div className="welcome"><h1>View not found</h1><a href={'#/projects/' + project!.projectId}>Back to project</a></div> : project ? route.issue ? <IssueDetail key={route.issue} api={api} project={project} issueKey={route.issue === 'new' ? undefined : route.issue}
