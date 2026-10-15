@@ -55,5 +55,5 @@ export function useIssueTableKeyboard({ tableKey, tableRef, rows, enabled, onOpe
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [enabled, rows, selectedId, tableRef, onOpen, onAdjustPriority]);
 
-  return selectedId;
+  return { selectedIssueId: selectedId, setSelectedIssueId: setSelectedId };
 }

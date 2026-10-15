@@ -583,6 +583,60 @@ test('J/K select displayed issue rows and Enter opens details without intercepti
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('clicking issue rows selects them for keyboard navigation and preserves links and controls', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Click selection', key: 'CLICK' } })).json() as Project;
+  const endpoint = url + '/api/projects/' + project.projectId + '/issues';
+  const issues: Issue[] = [];
+  for (const priority of [1, 2, 3]) {
+    issues.push(await (await page.request.post(endpoint, { data: { title: 'Click issue ' + priority, priority } })).json() as Issue);
+  }
+  const [first, middle, last] = issues as [Issue, Issue, Issue];
+  const view = await (await page.request.post(url + '/api/projects/' + project.projectId + '/views', { data: { title: 'Click view' } })).json();
+  const projectUrl = url + '/#/projects/' + project.projectId;
+  for (const tableUrl of [projectUrl, projectUrl + '/views/' + view.viewId]) {
+    await page.goto(tableUrl);
+    const table = page.locator('.table-wrap');
+    const row = (issue: Issue) => page.locator(`.issues-table tr[data-issue-id="${issue.issueId}"]`);
+    const selected = page.locator('.issues-table tr[aria-current="true"]');
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    // Clicking a plain cell must move focus out of the search field, too.
+    await page.getByRole('textbox', { name: 'Search issues' }).focus();
+    await row(middle).locator('td').nth(4).click();
+    await expect(selected).toHaveAttribute('data-issue-id', String(middle.issueId));
+    await expect(selected).toBeFocused();
+    await page.keyboard.press('j');
+    await expect(selected).toHaveAttribute('data-issue-id', String(last.issueId));
+    await page.keyboard.press('k');
+    await expect(selected).toHaveAttribute('data-issue-id', String(middle.issueId));
+    await page.keyboard.press('Enter');
+    await expect(page).toHaveURL(tableUrl + '/issues/' + middle.issueKey);
+    await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(middle.title);
+    await page.keyboard.press('Escape');
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+
+    await row(first).getByRole('link', { name: first.title, exact: true }).click();
+    await expect(page).toHaveURL(tableUrl + '/issues/' + first.issueKey);
+    await expect(page.getByRole('textbox', { name: 'Title', exact: true })).toHaveValue(first.title);
+    await page.keyboard.press('Escape');
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+    await expect(selected).toHaveAttribute('data-issue-id', String(first.issueId));
+
+    const status = row(last).getByLabel('Status of ' + last.issueKey);
+    await status.click();
+    await page.keyboard.press('Escape');
+    await expect(selected).toHaveAttribute('data-issue-id', String(last.issueId));
+    await expect(status).toBeFocused();
+    await status.selectOption({ label: 'in progress' });
+    await expect(status).toHaveValue(String(project.issueStatuses[3]!.statusId));
+    await expect(selected).toHaveAttribute('data-issue-id', String(last.issueId));
+    // Reset the status for the next table context.
+    await status.selectOption({ label: 'backlog' });
+    await expect(table).toHaveAttribute('aria-busy', 'false');
+  }
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('Shift+K/J adjust the selected priority, retain selection, and include hidden conflicts', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Priority keyboard', key: 'PKEY' } })).json() as Project;
@@ -603,8 +657,7 @@ test('Shift+K/J adjust the selected priority, retain selection, and include hidd
   await page.keyboard.press('Shift+K'); // No selection: no implicit selection or mutation.
   await expect(rows.locator('.issue-key')).toHaveText(issues.map(i => i.issueKey));
   await expect(page.locator('.issues-table tr[aria-current="true"]')).toHaveCount(0);
-  await page.keyboard.press('j');
-  await page.keyboard.press('j');
+  await selected.locator('td').nth(4).click();
   await expect(selected).toHaveAttribute('aria-current', 'true');
 
   await page.keyboard.press('Shift+K');

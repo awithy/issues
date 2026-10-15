@@ -51,7 +51,7 @@ export function App() {
   const viewMissing = !!route.viewId && !!project && !view;
   const tableKey = username && project && !viewMissing ? projectPath(project.projectId, route.viewId) : undefined;
   const tableRef = useIssueTableScroll(tableKey, route.issue);
-  const selectedIssueId = useIssueTableKeyboard({
+  const { selectedIssueId, setSelectedIssueId } = useIssueTableKeyboard({
     tableKey, tableRef, rows: issueRows, enabled: !!tableKey && !route.issue && !loading,
     onOpen: issue => navigate(project!.projectId, issue.issueKey, route.viewId),
     onAdjustPriority: async (issue, delta) => {
@@ -129,7 +129,10 @@ export function App() {
           </div>
           {labelFilters.length > 0 && <div className="label-filters" role="group" aria-label="Active label filters"><span className="muted small">Labels (all):</span>{labelFilters.map(label => <button className="label" key={label} aria-label={'Remove label filter ' + label} onClick={() => { setLabelFilters(previous => previous.filter(value => value !== label)); setPage(1); }}>{label}<span aria-hidden="true">×</span></button>)}</div>}
           <div className="table-wrap" ref={tableRef} aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><th scope="col" title="Lower numbers come first within each status">Priority</th><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th><th scope="col" aria-label="Actions" /></tr></thead>
-            <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId} data-issue-id={issue.issueId} tabIndex={-1} className={selectedIssueId === issue.issueId ? 'selected' : undefined} aria-current={selectedIssueId === issue.issueId ? 'true' : undefined}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
+            <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId} data-issue-id={issue.issueId} tabIndex={-1} className={selectedIssueId === issue.issueId ? 'selected' : undefined} aria-current={selectedIssueId === issue.issueId ? 'true' : undefined} onClick={event => {
+              setSelectedIssueId(issue.issueId);
+              if (!(event.target instanceof Element && event.target.closest('a, button, input, textarea, select, [contenteditable], [role="button"]'))) event.currentTarget.focus({ preventScroll: true });
+            }}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
               <td><IssueTypeIcon type={issue.issueType} /></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
               <td><select className={'status-pill ' + (issue.status.title.toLowerCase() === 'in progress' ? 'in-progress' : issue.status.isComplete ? 'complete' : '')} aria-label={'Status of ' + issue.issueKey} value={issue.status.statusId} disabled={changing === issue.issueId} onChange={async event => {
@@ -157,7 +160,7 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click an issue to edit details. Use J/K to select a row and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath same-status parents on this page.</p>
+          <p className="table-hint">Click a row to select it, or an issue key/title to edit details. Use J/K to move selection and Enter to open it. Shift+K raises priority; Shift+J lowers it, shifting conflicts within the same status. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Status sorting uses priority within each status (lower first). Sub-Tasks are grouped beneath same-status parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {subTaskParent && project && <AddSubTasks api={api} project={project} parent={subTaskParent} onClose={() => setSubTaskParent(undefined)} onCreated={() => setRevision(r => r + 1)} />}
