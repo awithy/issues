@@ -36,6 +36,7 @@ export function App() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [labelFilters, setLabelFilters] = useState<string[]>([]);
   const [revision, setRevision] = useState(0);
   const [changing, setChanging] = useState<number>();
   const [createProject, setCreateProject] = useState(false);
@@ -65,12 +66,12 @@ export function App() {
       .catch(error => { if (active) setError(message(error)); }).finally(() => { if (active) setProjectsLoading(false); });
     return () => { active = false; };
   }, [api, username]);
-  useEffect(() => { setSearch(''); setStatusFilter(''); setPage(1); setSettings(false); setViewEditor(undefined); }, [route.projectId, route.viewId]);
+  useEffect(() => { setSearch(''); setStatusFilter(''); setLabelFilters([]); setPage(1); setSettings(false); setViewEditor(undefined); }, [route.projectId, route.viewId]);
   useEffect(() => {
     if (!username || !project || viewMissing) { setIssues([]); setTotal(0); setComplete(0); return; }
     let active = true; setLoading(true);
     const timeout = setTimeout(() => {
-      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined, viewId: route.viewId, ...sort })
+      api.issuesPage(project.projectId, { page, pageSize }, { search, statusId: statusFilter ? Number(statusFilter) : undefined, labels: labelFilters, viewId: route.viewId, ...sort })
         .then(result => {
           if (!active) return;
           setIssues(result.items); setTotal(result.total); setComplete(result.complete); setPage(result.page);
@@ -78,7 +79,7 @@ export function App() {
         .finally(() => { if (active) setLoading(false); });
     }, 150);
     return () => { active = false; clearTimeout(timeout); };
-  }, [api, username, project?.projectId, route.issue, route.viewId, viewMissing, search, statusFilter, page, pageSize, sort, revision]);
+  }, [api, username, project?.projectId, route.issue, route.viewId, viewMissing, search, statusFilter, labelFilters, page, pageSize, sort, revision]);
   if (checking) return <div className="loading-screen">Loading Issues…</div>;
   if (!username) return <Login api={api} initialError={error} onLogin={user => { setError(''); setUsername(user); }} />;
   return <div className="app-shell">
@@ -112,6 +113,7 @@ export function App() {
               <select aria-label="Filter by status" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(1); }}><option value="">All statuses</option>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select>
             </div>
           </div>
+          {labelFilters.length > 0 && <div className="label-filters" role="group" aria-label="Active label filters"><span className="muted small">Labels (all):</span>{labelFilters.map(label => <button className="label" key={label} aria-label={'Remove label filter ' + label} onClick={() => { setLabelFilters(previous => previous.filter(value => value !== label)); setPage(1); }}>{label}<span aria-hidden="true">×</span></button>)}</div>}
           <div className="table-wrap" ref={tableRef} aria-busy={loading}><table className="issues-table"><thead><tr><SortHeader column="key" title="Key" sort={sort} onSort={sortIssues} /><th>Title</th><SortHeader column="type" title="Type" sort={sort} onSort={sortIssues} /><SortHeader column="status" title="Status" sort={sort} onSort={sortIssues} /><SortHeader column="assignee" title="Assignee" sort={sort} onSort={sortIssues} /><th>Labels</th></tr></thead>
             <tbody>{issueRows.map(({ issue, depth }) => <tr key={issue.issueId}><td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-key" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.issueKey}</a></td>
               <td style={{ paddingInlineStart: 18 + depth * 24 }}><a className="issue-title" href={'#' + projectPath(project.projectId, route.viewId, issue.issueKey)}>{issue.title}</a>{issue.attachments.length > 0 && <span className="file-count" title="Attachments"> ↗ {issue.attachments.length}</span>}</td>
@@ -122,10 +124,10 @@ export function App() {
                 catch (error) { setError(message(error)); } finally { setChanging(undefined); }
               }}>{project.issueStatuses.map(s => <option key={s.statusId} value={s.statusId}>{s.title}</option>)}</select></td>
               <td><span className={!issue.assignee ? 'muted' : ''}>{issue.assignee || 'Unassigned'}</span></td>
-              <td><div className="labels">{issue.labels.map((label, index) => <span className="label" key={index}>{label}</span>)}</div></td>
+              <td><div className="labels">{issue.labels.map((label, index) => <button className="label" key={index} aria-label={'Filter by label ' + label} aria-pressed={labelFilters.includes(label)} onClick={() => { setLabelFilters(previous => previous.includes(label) ? previous : [...previous, label]); setPage(1); }}>{label}</button>)}</div></td>
             </tr>)}</tbody></table>
-            {!issues.length && <div className="empty-state"><span className="empty-icon">☷</span><h3>{loading ? 'Loading issues…' : view || search || statusFilter ? 'No matching issues' : 'A fresh start'}</h3>
-              {!loading && <><p>{view || search || statusFilter ? 'Try a different search or status, or edit the view filters.' : 'Create your first issue and give the work a place to live.'}</p>{!view && !search && !statusFilter && <button className="secondary" onClick={() => navigate(project.projectId, 'new')}>Create first issue</button>}</>}
+            {!issues.length && <div className="empty-state"><span className="empty-icon">☷</span><h3>{loading ? 'Loading issues…' : view || search || statusFilter || labelFilters.length ? 'No matching issues' : 'A fresh start'}</h3>
+              {!loading && <><p>{view || search || statusFilter || labelFilters.length ? 'Try different search, status, or label filters, or edit the view filters.' : 'Create your first issue and give the work a place to live.'}</p>{!view && !search && !statusFilter && !labelFilters.length && <button className="secondary" onClick={() => navigate(project.projectId, 'new')}>Create first issue</button>}</>}
             </div>}
           </div>
           <nav className="pagination" aria-label="Issue pagination">
@@ -139,7 +141,7 @@ export function App() {
               <button className="secondary" disabled={loading || page >= pageCount} onClick={() => setPage(p => p + 1)}>Next</button>
             </div>
           </nav>
-          <p className="table-hint">Click an issue to edit details. Change its status right here. Click Key, Type, Status, or Assignee to sort. Sub-Tasks are grouped beneath parents on this page.</p>
+          <p className="table-hint">Click an issue to edit details. Change its status right here. Click a label to filter. Click Key, Type, Status, or Assignee to sort. Sub-Tasks are grouped beneath parents on this page.</p>
         </> : <div className="welcome"><span className="empty-icon">▦</span><h1>{projectsLoading ? 'Loading projects…' : route.projectId ? 'Project not found' : 'Make room for the work.'}</h1><p className="muted">Start with a project. Add issues. Keep moving.</p><button className="primary" onClick={() => setCreateProject(true)}>+ Create project</button></div>}
     </main></div>
     {viewEditor && editorProject && <ViewSettings api={api} project={editorProject} view={viewEditor.view} onClose={() => setViewEditor(undefined)}

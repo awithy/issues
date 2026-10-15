@@ -149,6 +149,23 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.request(`/projects/${p.projectId}/issues?sortDirection=invalid`), failure(400));
     await api.deleteProject(p.projectId);
   });
+  await t.test('label filters: exact matches, combined labels, counts, and saved views', async () => {
+    const p = await api.createProject('Label filters', 'LABEL');
+    const done = p.issueStatuses.find(s => s.title === 'done')!.statusId;
+    const label = 'ui,ux & review';
+    const matching = await api.createIssue(p.projectId, { title: 'Matching work', labels: [label, 'urgent'], statusId: done });
+    const other = await api.createIssue(p.projectId, { title: 'Other work', labels: [label] });
+    await api.createIssue(p.projectId, { title: label, labels: [label.toUpperCase(), 'urgent'] });
+    await api.createIssue(p.projectId, { title: 'Substring label', labels: [label + '-extra'] });
+    assert.deepEqual((await api.issues(p.projectId, { labels: [label] })).map(i => i.issueId), [other.issueId, matching.issueId]);
+    const result = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, { labels: [label, 'urgent'], statusId: done, search: 'Matching' });
+    assert.equal(result.total, 1); assert.equal(result.complete, 1); assert.equal(result.page, 1);
+    assert.deepEqual(result.items.map(i => i.issueId), [matching.issueId]);
+    const view = await api.createView(p.projectId, { title: 'Urgent', filters: { labels: ['urgent'], statusIds: [], issueTypes: [] } });
+    assert.deepEqual((await api.issues(p.projectId, { viewId: view.viewId, labels: [label] })).map(i => i.issueId), [matching.issueId]);
+    assert.equal((await api.issuesPage(p.projectId, { page: 1, pageSize: 100 }, { labels: ['absent'] })).total, 0);
+    await api.deleteProject(p.projectId);
+  });
   await t.test('shared saved views: combined filters, pagination, editing, project scope and deletion', async () => {
     const p = await api.createProject('Saved views', 'VIEW');
     const backlog = p.issueStatuses[0]!.statusId;

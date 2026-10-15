@@ -102,6 +102,7 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   router.get('/projects/:id/issues', async (req, res) => {
     const { page, pageSize, ...filters } = z.object({
       statusId: id.optional(), search: z.string().max(300).optional(), viewId: id.optional(),
+      labels: z.preprocess(value => typeof value === 'string' ? [value] : value, z.array(z.string().trim().min(1).max(100)).max(50).optional()),
       sortBy: z.enum(ISSUE_SORT_COLUMNS).optional(), sortDirection: z.enum(['asc', 'desc']).optional(),
       page: id.default(1),
       pageSize: z.coerce.number().pipe(z.union(ISSUE_PAGE_SIZES.map(size => z.literal(size)))).optional(),

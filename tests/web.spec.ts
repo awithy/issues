@@ -399,6 +399,67 @@ test('issue sorting: all sortable headers, both directions, and returning from d
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('clicking table labels adds removable filters across pages and saved views', async ({ page }) => {
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Labelled work', key: 'LABEL' } })).json() as Project;
+  await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id,labels)
+    SELECT $1,n,'Labelled work ' || n,$2,CASE WHEN n=1 THEN ARRAY['frontend','urgent'] ELSE ARRAY['frontend'] END
+    FROM generate_series(1,101) n`, [project.projectId, project.issueStatuses[0]!.statusId]);
+  await page.request.post(url + '/api/projects/' + project.projectId + '/issues', { data: { title: 'frontend title only', issueNumber: 102, labels: ['frontend-extra'] } });
+  const view = await (await page.request.post(url + '/api/projects/' + project.projectId + '/views', { data: { title: 'Backlog view', filters: { statusIds: [project.issueStatuses[0]!.statusId] } } })).json();
+  const projectUrl = url + '/#/projects/' + project.projectId;
+  await page.goto(projectUrl);
+  const rows = page.locator('.issues-table tbody tr');
+  const pagination = page.getByRole('navigation', { name: 'Issue pagination' });
+  const filters = page.getByRole('group', { name: 'Active label filters' });
+  const frontend = () => rows.getByRole('button', { name: 'Filter by label frontend', exact: true }).first();
+  const urgent = () => rows.getByRole('button', { name: 'Filter by label urgent', exact: true });
+  await expect(pagination).toContainText('1–100 of 102 issues');
+  await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(pagination).toContainText('Page 2 of 2');
+  await frontend().click();
+  await expect(pagination).toContainText('1–100 of 101 issues');
+  await expect(pagination).toContainText('Page 1 of 2');
+  await expect(frontend()).toHaveAttribute('aria-pressed', 'true');
+  await frontend().click();
+  await expect(filters.getByRole('button')).toHaveCount(1);
+  await pagination.getByRole('button', { name: 'Next', exact: true }).click();
+  await expect(pagination).toContainText('101–101 of 101 issues');
+  await urgent().focus();
+  await page.keyboard.press('Enter');
+  await expect(filters.getByRole('button')).toHaveCount(2);
+  await expect(pagination).toContainText('1–1 of 1 issues');
+  await expect(rows).toContainText(['Labelled work 1']);
+  await page.getByLabel('Filter by status').selectOption({ label: 'done' });
+  await expect(page.getByRole('heading', { name: 'No matching issues' })).toBeVisible();
+  await page.getByLabel('Filter by status').selectOption('');
+  await expect(rows).toHaveCount(1);
+  await page.getByRole('textbox', { name: 'Search issues' }).fill('absent');
+  await expect(rows).toHaveCount(0);
+  await page.getByRole('textbox', { name: 'Search issues' }).fill('');
+  await expect(rows).toHaveCount(1);
+  await page.getByRole('link', { name: 'Labelled work 1', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to issues' }).click();
+  await expect(filters.getByRole('button')).toHaveCount(2);
+  await expect(rows).toHaveCount(1);
+  await filters.getByRole('button', { name: 'Remove label filter urgent', exact: true }).click();
+  await expect(pagination).toContainText('1–100 of 101 issues');
+  await filters.getByRole('button', { name: 'Remove label filter frontend', exact: true }).click();
+  await expect(filters).toHaveCount(0);
+  await expect(pagination).toContainText('1–100 of 102 issues');
+
+  await page.getByRole('link', { name: 'Backlog view', exact: true }).click();
+  await expect(pagination).toContainText('1–100 of 102 issues');
+  await frontend().click();
+  await expect(pagination).toContainText('1–100 of 101 issues');
+  const saved = await (await page.request.get(url + '/api/projects/' + project.projectId + '/views/' + view.viewId)).json();
+  expect(saved.filters.labels).toEqual([]);
+  await page.getByRole('link', { name: /Labelled work LABEL$/ }).click();
+  await expect(filters).toHaveCount(0);
+  await expect(pagination).toContainText('1–100 of 102 issues');
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('saved views: sidebar, persisted filters, shared table and editing/deletion', async ({ page }) => {
   page.on('dialog', dialog => dialog.accept());
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });

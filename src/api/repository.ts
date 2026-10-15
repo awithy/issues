@@ -93,6 +93,7 @@ export class Repository {
       if (view.filters.statusIds.length) { values.push(view.filters.statusIds); where += ' AND i.status_id=ANY($' + values.length + '::int[])'; }
       if (view.filters.issueTypes.length) { values.push(view.filters.issueTypes); where += ' AND i.issue_type=ANY($' + values.length + '::text[])'; }
     }
+    if (filters.labels?.length) { values.push(filters.labels); where += ' AND i.labels @> $' + values.length + '::text[]'; }
     if (filters.statusId) { values.push(filters.statusId); where += ' AND i.status_id=$' + values.length; }
     if (filters.search) {
       values.push('%' + filters.search + '%'); const param = '$' + values.length;
