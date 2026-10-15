@@ -23,7 +23,7 @@ export function App() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const issueRows = useMemo(() => groupIssueRows(issues), [issues]);
   const [page, setPage] = useState(1);
-  const [sort, setSort] = useState<IssueSort>({ sortBy: 'key', sortDirection: 'desc' });
+  const [sort, setSort] = useState<IssueSort>({ sortBy: 'status', sortDirection: 'asc' });
   function sortIssues(sortBy: IssueSortColumn) {
     setSort(previous => ({ sortBy, sortDirection: previous.sortBy === sortBy && previous.sortDirection === 'asc' ? 'desc' : 'asc' }));
     setPage(1);

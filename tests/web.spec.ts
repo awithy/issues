@@ -270,7 +270,8 @@ test('issue sorting: all sortable headers, both directions, and returning from d
   await page.request.post(endpoint, { data: { title: 'Sort D', issueNumber: 20 } });
   await page.goto(url + '/#/projects/' + project.projectId);
   const keys = page.locator('.issues-table tbody .issue-key');
-  await expect(keys).toHaveText(['SORT-20', 'SORT-11', 'SORT-10', 'SORT-2']);
+  await expect(page.getByRole('button', { name: 'Sort by Status', exact: true }).locator('..')).toHaveAttribute('aria-sort', 'ascending');
+  await expect(keys).toHaveText(['SORT-20', 'SORT-10', 'SORT-11', 'SORT-2']);
   const orders = [
     { column: 'Key', asc: [2, 10, 11, 20], desc: [20, 11, 10, 2] },
     { column: 'Type', asc: [11, 2, 20, 10], desc: [10, 20, 11, 2] },
@@ -325,7 +326,7 @@ test('saved views: sidebar, persisted filters, shared table and editing/deletion
   await expect(page.getByRole('heading', { name: 'Urgent work', exact: true })).toBeVisible();
   await expect(page.locator('.project-nav-group').filter({ hasText: 'View project' }).getByRole('link', { name: 'Urgent work', exact: true })).toHaveAttribute('aria-current', 'page');
   await expect(rows).toHaveCount(2);
-  await expect(rows).toContainText(['Matching task', 'Matching bug']);
+  await expect(rows).toContainText(['Matching bug', 'Matching task']);
   await expect(page.locator('.toolbar-left')).toContainText('1 complete');
   await page.reload();
   await expect(rows).toHaveCount(2);

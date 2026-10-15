@@ -128,6 +128,9 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await api.createIssue(p.projectId, { title: 'Sort B', issueNumber: 10, issueType: 'Task', assignee: 'alice', statusId: backlog });
     await api.createIssue(p.projectId, { title: 'Sort C', issueNumber: 11, issueType: 'Bug', assignee: 'ALICE', statusId: design });
     await api.createIssue(p.projectId, { title: 'Sort D', issueNumber: 20, issueType: 'Issue', statusId: backlog });
+    const defaultOrder = ['SORT-20', 'SORT-10', 'SORT-11', 'SORT-2'];
+    assert.deepEqual((await api.issues(p.projectId)).map(i => i.issueKey), defaultOrder);
+    assert.deepEqual((await api.issuesPage(p.projectId, { page: 1, pageSize: 100 })).items.map(i => i.issueKey), defaultOrder);
     const expected = {
       key: { asc: [2, 10, 11, 20], desc: [20, 11, 10, 2] },
       type: { asc: [11, 2, 20, 10], desc: [10, 20, 11, 2] },
@@ -162,7 +165,7 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     assert.deepEqual((await bob.views(p.projectId)), [view]);
     assert.deepEqual((await api.project(p.projectId)).views, [view]);
     assert.deepEqual((await api.projects()).find(project => project.projectId === p.projectId)!.views, [view]);
-    assert.deepEqual((await bob.issues(p.projectId, { viewId: view.viewId })).map(i => i.issueId), [task.issueId, bug.issueId]);
+    assert.deepEqual((await bob.issues(p.projectId, { viewId: view.viewId })).map(i => i.issueId), [bug.issueId, task.issueId]);
     const sortedView = await api.issuesPage(p.projectId, { page: 1, pageSize: 100 }, { viewId: view.viewId, sortBy: 'type', sortDirection: 'asc' });
     assert.deepEqual(sortedView.items.map(i => i.issueId), [bug.issueId, task.issueId]);
     assert.deepEqual((await api.issues(p.projectId, { viewId: view.viewId, statusId: done, search: 'task' })).map(i => i.issueId), [task.issueId]);
@@ -170,7 +173,7 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       SELECT $1,n,'Matching bulk ' || n,$2,$3,'Bug' FROM generate_series(100,200) n`, [p.projectId, backlog, labels]);
     const result = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, { viewId: view.viewId });
     assert.equal(result.total, 103); assert.equal(result.complete, 1); assert.equal(result.items.length, 3);
-    assert.deepEqual(result.items.slice(-2).map(i => i.issueId), [task.issueId, bug.issueId]);
+    assert.deepEqual(result.items.slice(-2).map(i => i.issueId), [bug.issueId, task.issueId]);
     const renamed = await api.updateProject(p.projectId, { issueStatuses: p.issueStatuses.map(s => ({ ...s, title: s.statusId === backlog ? 'todo' : s.title })) });
     assert.equal((await api.issues(p.projectId, { viewId: view.viewId })).length, 103);
     view = await bob.updateView(p.projectId, view.viewId, { title: 'Only tasks', filters: { labels: [], statusIds: [], issueTypes: ['Task'] } });

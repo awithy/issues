@@ -100,8 +100,8 @@ export class Repository {
     }
     // Only allowlisted expressions and directions are interpolated into SQL.
     const sortColumns = { key: 'i.issue_number', type: 'lower(i.issue_type)', status: 's.position', assignee: "NULLIF(lower(i.assignee), '')" };
-    const sortBy = filters.sortBy ?? 'key';
-    const direction = (filters.sortDirection ?? (filters.sortBy ? 'asc' : 'desc')) === 'asc' ? 'ASC' : 'DESC';
+    const sortBy = filters.sortBy ?? 'status';
+    const direction = (filters.sortDirection ?? 'asc') === 'asc' ? 'ASC' : 'DESC';
     const orderBy = ' ORDER BY ' + sortColumns[sortBy] + ' ' + direction + ' NULLS LAST' + (sortBy === 'key' ? '' : ', i.issue_number DESC');
     if (!pagination) return (await this.pool.query<Issue>(issueSelect + where + orderBy, values)).rows;
     const counts = (await this.pool.query<{ total: number; complete: number }>(
