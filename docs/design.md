@@ -22,6 +22,7 @@ Guiding principles:
 - Use global issue types and required parent relationships for Sub-Tasks.
 - Link any two distinct issues with an undirected relationship, including across projects.
 - View issues in a paginated table; search and filter by status.
+- Save shared project views filtered by labels, statuses, and issue types.
 - Edit separate Markdown Description and Notes fields.
 - Configure statuses for each project.
 - Assign free-text assignees and string labels.
@@ -95,6 +96,7 @@ Configured User ─── Session
 | `title` | Required text; editable. |
 | `key` | Unique uppercase abbreviation, such as `WEB`; immutable after creation. |
 | `issueStatuses` | Ordered list loaded from `issue_statuses`. |
+| `views` | Shared saved views loaded from `project_views`, in creation order. |
 | `nextIssueNumber` | Internal counter stored as `next_issue_number`; starts at 1. |
 
 Keys contain 1–12 letters or digits and start with a letter. Project creation creates both the project and its default statuses in one transaction.
@@ -125,6 +127,27 @@ New projects receive:
 The arrow notation `backlog → design → ready → in progress → done → archived` describes default display order, **not a required workflow**. An issue may move from backlog directly to archived or from done back to design.
 
 The first status is the default for new issues. Every project must retain at least one status. Names must be unique within the submitted project status list, ignoring case. Archived issues remain ordinary issues and are included in the default table; archiving is not deletion.
+
+### Project view
+
+Each view belongs to exactly one project and has a `viewId`, `projectId`, required `title` (up to 300 characters), and persisted `filters`:
+
+```ts
+{ labels: string[]; statusIds: number[]; issueTypes: string[] }
+```
+
+The `project_views` table stores filters as JSONB. Views are shared by all authenticated users, appear beneath their project in the sidebar, and display the same issue table rather than storing copies of issues. Titles need not be unique; IDs identify views. Deleting a view leaves its issues unchanged; deleting its project cascades to the views.
+
+Filter semantics:
+
+- Labels use exact, case-sensitive matching and must **all** be present; additional labels are allowed.
+- Statuses match **any** selected status ID within the owning project.
+- Types match **any** selected global issue type.
+- Categories are combined with **AND**. An empty array imposes no restriction in that category; all empty arrays match all project issues.
+
+View creation and edits lock the project row and validate selected statuses against the project, coordinating with status configuration. Status renames preserve the filters because IDs are stable. Removing a status referenced by a saved view is rejected with `409`; edit or delete those views first. Filters are validated by the API, not relational foreign keys inside the JSONB value. View updates are last-write-wins; supplying `filters` replaces the entire filter set, with omitted category arrays defaulting to empty. Omitting `filters` preserves them.
+
+Issue listings accept `viewId`, resolve its saved filters on the server, and apply them in SQL before pagination and counts. A view from another project or a missing view returns `404`, never an unfiltered list. Temporary search/status filters further narrow the view without changing its saved filters.
 
 ### Issue
 
@@ -228,7 +251,7 @@ A project patch can replace its status list:
 1. Lock the project row.
 2. Validate that retained `statusId` values belong to this project and are not repeated.
 3. Identify omitted statuses as removals.
-4. Reject the entire patch with `409` if any removed status has issues.
+4. Reject the entire patch with `409` if any removed status has issues or is referenced by a saved view.
 5. Delete unused omitted statuses, update retained statuses, and create entries without IDs.
 6. Apply the submitted order and commit.
 
@@ -298,12 +321,17 @@ The API is rooted at `/api`. Request and response bodies are JSON except attachm
 | POST | `/auth/logout` | Revoke the current session. |
 | GET | `/auth/me` | Return the current username. |
 | GET | `/issue-types` | List the global issue types. |
-| GET | `/projects` | List projects and their ordered statuses. |
+| GET | `/projects` | List projects, their ordered statuses, and saved views. |
 | POST | `/projects` | Create a project and default statuses. |
 | GET | `/projects/:id` | Read a project. |
 | PATCH | `/projects/:id` | Update title and/or replace status configuration. |
 | DELETE | `/projects/:id` | Permanently delete the project and dependent data. |
-| GET | `/projects/:id/issues` | List issues; optional `statusId` and `search` filters; `pageSize` and `page` enable pagination. |
+| GET | `/projects/:id/views` | List the project's saved views. |
+| POST | `/projects/:id/views` | Create a shared view with title and filters. |
+| GET | `/projects/:id/views/:viewId` | Read a saved view belonging to this project. |
+| PATCH | `/projects/:id/views/:viewId` | Update title and/or replace saved filters. |
+| DELETE | `/projects/:id/views/:viewId` | Delete only the saved view. |
+| GET | `/projects/:id/issues` | List issues; optional `statusId`, `search`, and `viewId` filters; `pageSize` and `page` enable pagination. |
 | POST | `/projects/:id/issues` | Create an issue. |
 | GET | `/issues/:id-or-key` | Read issue details and attachment metadata. |
 | PATCH | `/issues/:id-or-key` | Update issue fields. |
@@ -360,13 +388,14 @@ Create operations return `201`, reads and updates return `200`, and successful d
 
 ### Web app
 
-The web app uses React state and a small hash-based router, without a separate state-management or routing framework. Routes identify the selected project and optionally an issue, for example `#/projects/1/issues/WEB-123`.
+The web app uses React state and a small hash-based router, without a separate state-management or routing framework. Routes identify the selected project and optionally an issue, for example `#/projects/1/issues/WEB-123`. Saved view routes use `#/projects/1/views/2`; opening an issue from a view uses `#/projects/1/views/2/issues/WEB-123`, preserving the view when returning to its table.
 
 Its main surfaces are:
 
 - **Login:** username/password form; current session checked on initial load.
-- **Project sidebar:** project selection and creation.
-- **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts. Pagination defaults to 100 items, with 500 and 1000 options, Previous/Next controls, and matching issue counts. Project, search, status, and page-size changes reset to page 1; returning from issue details preserves the current page. Deletions and status changes clamp pages when the result set shrinks.
+- **Project sidebar:** project selection and creation, saved views nested under each project, and a New view control.
+- **View editor:** create/rename a view; configure comma-separated labels and multi-select status/type checkboxes; explicitly save or permanently delete the view. The view table displays a saved-filter summary.
+- **Issue table:** key, title, type, status, assignee, and labels; inline status changes and attachment counts. Pagination defaults to 100 items, with 500 and 1000 options, Previous/Next controls, and matching issue counts. Project, view, search, status, and page-size changes reset to page 1; returning from issue details preserves the current page. Deletions and status changes clamp pages when the result set shrinks.
 - **Issue detail editor:** explicit save for title, type, parent, Description, Notes, status, labels, assignee, and resolution date (shown/edited in local time, including milliseconds). Parent selection includes issues across projects.
 - **Markdown fields:** independent Write/Preview controls using `react-markdown` and `remark-gfm`; raw HTML is not rendered.
 - **Linked issues section:** enter an issue key or ID to link it, navigate to linked issues, or unlink from either endpoint. Links persist immediately, independently of unsaved editor fields, and are available after issue creation.
@@ -377,11 +406,13 @@ Search/filter changes request fresh API results after a short delay. Mutations u
 
 ### CLI
 
-The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
+The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `view`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
 
 Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` sets an explicit per-project number; this option is not available on update and is not exposed in the web editor. `--created-at` applies only to creation. `--updated-at` applies to create/update and overrides the update timestamp with an ISO 8601 timestamp with timezone; it can be used alone for timestamp finalization. `--resolution-date` applies to create/update and accepts an ISO 8601 timestamp with timezone or an empty string to clear. `issue show` includes creation, update, and resolution timestamps. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
 `issue link <issue> <other-issue>` adds an undirected link; `issue links <issue>` lists linked summaries, and `issue unlink <issue> <other-issue>` removes a link from either end without confirmation or issue deletion. `issue show` also includes linked issues. Both endpoints accept an issue key or ID.
+
+`view list/show/create/update/delete` manage saved views within a project. View arguments use numeric IDs. Create/update support `--labels`, `--statuses`, and `--issue-types` as comma-separated lists; empty strings clear a category. Status names or IDs are accepted. Updates preserve categories not supplied. `issue list <project> --view <view-id>` applies the persisted filters, optionally narrowed by search/status.
 
 Lists use terminal tables by default; `--json` exposes structured API data for scripts. Errors print a readable message and set a non-zero exit code. `--api` and `ISSUES_API_URL` select the server. The CLI reads/writes local input, download, and session files, but never application database records.
 
@@ -392,7 +423,8 @@ Deletion uses SQL `DELETE`, not a state transition:
 ```text
 Delete attachment ── remove its row and stored blob
 Delete issue ──────── remove issue + cascade to its attachments and links
-Delete project ───── remove project + cascade to its issues, attachments, links, and statuses
+Delete view ──────── remove the saved view, leaving issues unchanged
+Delete project ───── remove project + cascade to its issues, attachments, links, statuses, and views
 ```
 
 Database foreign keys perform the cascades, so dependent removal is part of the database delete operation rather than a sequence of client cleanup calls. Issue deletion preserves the surviving project’s counter. Project deletion removes that counter with the project.
@@ -419,7 +451,7 @@ Runtime configuration is read from environment variables, with `.env` support:
 
 Startup validates users, connects to Postgres, applies schema migrations, and starts serving requests. SIGINT/SIGTERM initiate HTTP server shutdown and then close the database pool. Run the server from the repository root because schema, default user-config, and built web paths are relative to that directory.
 
-Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues. `004.sql` adds nullable resolution dates, leaving existing timestamps and other issue data unchanged. `005.sql` adds optional attachment upload keys and their per-issue partial unique index; existing attachments have no key.
+Numbered SQL files in `db/` are applied automatically or through `npm run db:migrate`, in order, once per database schema. `schema_migrations` records applied filenames. Migrations run in one transaction under a schema-scoped advisory lock so concurrent API startups are safe. `001.sql` remains the idempotent initial schema for compatibility with existing installations; `002.sql` adds issue types and parents, backfilling existing issues to Issue with no parent. `003.sql` adds the issue-links table without changing existing issues. `004.sql` adds nullable resolution dates, leaving existing timestamps and other issue data unchanged. `005.sql` adds optional attachment upload keys and their per-issue partial unique index; existing attachments have no key. `006.sql` adds project views with JSONB filters and cascading project ownership, leaving all existing projects and issues unchanged.
 
 For production:
 
@@ -450,6 +482,7 @@ Primary coverage includes:
 - Undirected links within and across projects, symmetric visibility, concurrent duplicate prevention, unlinking from either endpoint, and deletion cleanup.
 - Upgrading an existing schema without losing issues, including repeat/concurrent migration runs.
 - Free-text assignees, labels, search, and status filtering.
+- Shared saved views, AND/OR filter semantics, filtered pagination/counts, rename/filter edits, project scope, status-reference protection, and view/project deletion.
 - Any-to-any transitions and editable status configuration.
 - Exact binary attachment round trips and permanent deletion.
 - Concurrent issue creation with unique numbering and no automatic reuse after deletion.

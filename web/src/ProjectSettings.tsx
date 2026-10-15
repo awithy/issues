@@ -23,7 +23,7 @@ export function ProjectSettings({ api, project, onClose, onSaved, onDeleted }: {
       <label className="field">Project title<input required maxLength={300} value={title} onChange={event => setTitle(event.target.value)} /></label>
       <p className="muted small">Project key: <strong>{project.key}</strong>. Keys are permanent so issue references stay stable.</p>
       <div className="field-heading"><h3>Statuses</h3><button type="button" className="secondary" disabled={statuses.length >= 30} onClick={() => setStatuses(previous => [...previous, { title: '', isComplete: false }])}>+ Add status</button></div>
-      <p className="muted small">The first status is the default for new issues. Move issues before removing an in-use status. All transitions are allowed.</p>
+      <p className="muted small">The first status is the default for new issues. Move issues and remove the status from saved views before deleting it. All transitions are allowed.</p>
       <div className="status-settings">{statuses.map((status, index) => <div className="status-row" key={status.statusId ?? 'new-' + index}>
         <input aria-label={'Status ' + (index + 1) + ' name'} required value={status.title} onChange={event => change(index, { title: event.target.value })} maxLength={100} />
         <label className="check"><input type="checkbox" checked={status.isComplete} onChange={event => change(index, { isComplete: event.target.checked })} /> Complete</label>
@@ -33,7 +33,7 @@ export function ProjectSettings({ api, project, onClose, onSaved, onDeleted }: {
       </div>)}</div>
       <div className="modal-actions"><button className="secondary" type="button" onClick={onClose}>Cancel</button><button className="primary" disabled={busy}>{busy ? 'Saving…' : 'Save settings'}</button></div>
     </form>
-    <div className="danger-zone"><h3>Delete project</h3><p>This permanently deletes every issue and attachment in this project.</p>
+    <div className="danger-zone"><h3>Delete project</h3><p>This permanently deletes every issue, attachment, and saved view in this project.</p>
       <button className="danger" disabled={busy} onClick={async () => {
         if (!confirm('Permanently delete ' + project.key + ' and ALL its issues and attachments? This cannot be undone.')) return;
         setBusy(true); setError('');

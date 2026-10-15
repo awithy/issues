@@ -34,6 +34,13 @@ const projectInput = z.object({ title, key: z.string().trim().toUpperCase().rege
 const statuses = z.array(z.object({ statusId: id.optional(), title: z.string().trim().min(1).max(100), isComplete: z.boolean() }).strict()).min(1).max(30)
   .refine(values => new Set(values.map(s => s.title.toLowerCase())).size === values.length, 'Status names must be unique');
 const projectPatch = z.object({ title: title.optional(), issueStatuses: statuses.optional() }).strict().refine(nonempty, 'Provide a field to update');
+const viewFilters = z.object({
+  labels: z.array(z.string().trim().min(1).max(100)).max(50).default([]),
+  statusIds: z.array(id).max(30).default([]),
+  issueTypes: z.array(z.enum(ISSUE_TYPES)).max(ISSUE_TYPES.length).default([]),
+}).strict();
+const viewInput = z.object({ title, filters: viewFilters.default({ labels: [], statusIds: [], issueTypes: [] }) }).strict();
+const viewPatch = z.object({ title: title.optional(), filters: viewFilters.optional() }).strict().refine(nonempty, 'Provide a field to update');
 const issueRef = (value: unknown) => z.string().trim().toUpperCase().regex(/^(?:[1-9]\d*|[A-Z][A-Z0-9]{0,11}-[1-9]\d*)$/, 'Use an issue ID or key such as WEB-123').parse(value);
 const tokenHash = (token: string) => createHash('sha256').update(token).digest('hex');
 const cookieName = 'issues_session';
@@ -86,9 +93,14 @@ export function createApp(options: { pool: pg.Pool; users: User[]; publicOrigin?
   router.get('/projects/:id', async (req, res) => res.json(await repo.project(id.parse(req.params.id))));
   router.patch('/projects/:id', async (req, res) => res.json(await repo.updateProject(id.parse(req.params.id), projectPatch.parse(req.body))));
   router.delete('/projects/:id', async (req, res) => { await repo.deleteProject(id.parse(req.params.id)); res.sendStatus(204); });
+  router.get('/projects/:id/views', async (req, res) => res.json(await repo.views(id.parse(req.params.id))));
+  router.post('/projects/:id/views', async (req, res) => res.status(201).json(await repo.saveView(id.parse(req.params.id), viewInput.parse(req.body))));
+  router.get('/projects/:id/views/:viewId', async (req, res) => res.json(await repo.view(id.parse(req.params.id), id.parse(req.params.viewId))));
+  router.patch('/projects/:id/views/:viewId', async (req, res) => res.json(await repo.saveView(id.parse(req.params.id), viewPatch.parse(req.body), id.parse(req.params.viewId))));
+  router.delete('/projects/:id/views/:viewId', async (req, res) => { await repo.deleteView(id.parse(req.params.id), id.parse(req.params.viewId)); res.sendStatus(204); });
   router.get('/projects/:id/issues', async (req, res) => {
     const { page, pageSize, ...filters } = z.object({
-      statusId: id.optional(), search: z.string().max(300).optional(),
+      statusId: id.optional(), search: z.string().max(300).optional(), viewId: id.optional(),
       page: id.default(1),
       pageSize: z.coerce.number().pipe(z.union(ISSUE_PAGE_SIZES.map(size => z.literal(size)))).optional(),
     }).parse(req.query);

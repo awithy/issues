@@ -1,4 +1,4 @@
-import type { Attachment, CreateIssueInput, Issue, IssueFilters, IssuePage, IssuePagination, UpdateIssueInput, IssueType, Project, StatusInput } from './types.js';
+import type { Attachment, CreateIssueInput, Issue, IssueFilters, IssuePage, IssuePagination, UpdateIssueInput, IssueType, Project, ProjectView, ViewInput, StatusInput } from './types.js';
 export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
@@ -24,10 +24,16 @@ export class ApiClient {
   createProject(title: string, key: string) { return this.request<Project>('/projects', { method: 'POST', body: JSON.stringify({ title, key }) }); }
   updateProject(id: number, data: { title?: string; issueStatuses?: StatusInput[] }) { return this.request<Project>('/projects/' + id, { method: 'PATCH', body: JSON.stringify(data) }); }
   deleteProject(id: number) { return this.request<void>('/projects/' + id, { method: 'DELETE' }); }
+  views(projectId: number) { return this.request<ProjectView[]>('/projects/' + projectId + '/views'); }
+  view(projectId: number, viewId: number) { return this.request<ProjectView>('/projects/' + projectId + '/views/' + viewId); }
+  createView(projectId: number, data: ViewInput) { return this.request<ProjectView>('/projects/' + projectId + '/views', { method: 'POST', body: JSON.stringify(data) }); }
+  updateView(projectId: number, viewId: number, data: Partial<ViewInput>) { return this.request<ProjectView>('/projects/' + projectId + '/views/' + viewId, { method: 'PATCH', body: JSON.stringify(data) }); }
+  deleteView(projectId: number, viewId: number) { return this.request<void>('/projects/' + projectId + '/views/' + viewId, { method: 'DELETE' }); }
   private issueQuery(filters: IssueFilters) {
     const query = new URLSearchParams();
     if (filters.statusId) query.set('statusId', String(filters.statusId));
     if (filters.search) query.set('search', filters.search);
+    if (filters.viewId !== undefined) query.set('viewId', String(filters.viewId));
     return query;
   }
   issues(projectId: number, filters: IssueFilters = {}) {

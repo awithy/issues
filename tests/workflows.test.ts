@@ -14,7 +14,7 @@ import { createApp } from '../src/api/app.js';
 import { databaseUrl, migrate } from '../src/api/db.js';
 import { ApiClient, ApiError } from '../src/shared/client.js';
 import { DEFAULT_STATUSES, ISSUE_TYPES } from '../src/shared/types.js';
-import type { Project, Issue } from '../src/shared/types.js';
+import type { Project, Issue, ProjectView } from '../src/shared/types.js';
 const exec = promisify(execFile);
 const failure = (status: number) => (error: unknown) => error instanceof ApiError && error.status === status;
 
@@ -115,6 +115,51 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.request(`/projects/${p.projectId}/issues?pageSize=50`), failure(400));
     await assert.rejects(api.request(`/projects/${p.projectId}/issues?pageSize=100&page=0`), failure(400));
     await api.deleteProject(p.projectId);
+  });
+  await t.test('shared saved views: combined filters, pagination, editing, project scope and deletion', async () => {
+    const p = await api.createProject('Saved views', 'VIEW');
+    const backlog = p.issueStatuses[0]!.statusId;
+    const done = p.issueStatuses.find(s => s.title === 'done')!.statusId;
+    const labels = ['frontend', 'urgent'];
+    const bug = await api.createIssue(p.projectId, { title: 'Matching bug', labels: [...labels, 'extra'], issueType: 'Bug' });
+    const task = await api.createIssue(p.projectId, { title: 'Matching task', labels, issueType: 'Task', statusId: done });
+    await api.createIssue(p.projectId, { title: 'Missing label', labels: ['frontend'], issueType: 'Bug' });
+    await api.createIssue(p.projectId, { title: 'Wrong status', labels, issueType: 'Bug', statusId: p.issueStatuses[1]!.statusId });
+    await api.createIssue(p.projectId, { title: 'Wrong type', labels, issueType: 'Story' });
+    let view = await api.createView(p.projectId, { title: 'Urgent work', filters: { labels, statusIds: [backlog, done], issueTypes: ['Bug', 'Task'] } });
+    view = await bob.updateView(p.projectId, view.viewId, { title: 'Urgent bugs and tasks' });
+    assert.deepEqual(view.filters, { labels, statusIds: [backlog, done], issueTypes: ['Bug', 'Task'] });
+    assert.deepEqual((await bob.views(p.projectId)), [view]);
+    assert.deepEqual((await api.project(p.projectId)).views, [view]);
+    assert.deepEqual((await api.projects()).find(project => project.projectId === p.projectId)!.views, [view]);
+    assert.deepEqual((await bob.issues(p.projectId, { viewId: view.viewId })).map(i => i.issueId), [task.issueId, bug.issueId]);
+    assert.deepEqual((await api.issues(p.projectId, { viewId: view.viewId, statusId: done, search: 'task' })).map(i => i.issueId), [task.issueId]);
+    await pool.query(`INSERT INTO issues(project_id,issue_number,title,status_id,labels,issue_type)
+      SELECT $1,n,'Matching bulk ' || n,$2,$3,'Bug' FROM generate_series(100,200) n`, [p.projectId, backlog, labels]);
+    const result = await api.issuesPage(p.projectId, { page: 2, pageSize: 100 }, { viewId: view.viewId });
+    assert.equal(result.total, 103); assert.equal(result.complete, 1); assert.equal(result.items.length, 3);
+    assert.deepEqual(result.items.slice(-2).map(i => i.issueId), [task.issueId, bug.issueId]);
+    const renamed = await api.updateProject(p.projectId, { issueStatuses: p.issueStatuses.map(s => ({ ...s, title: s.statusId === backlog ? 'todo' : s.title })) });
+    assert.equal((await api.issues(p.projectId, { viewId: view.viewId })).length, 103);
+    view = await bob.updateView(p.projectId, view.viewId, { title: 'Only tasks', filters: { labels: [], statusIds: [], issueTypes: ['Task'] } });
+    assert.deepEqual((await api.view(p.projectId, view.viewId)), view);
+    assert.deepEqual((await api.issues(p.projectId, { viewId: view.viewId })).map(i => i.issueId), [task.issueId]);
+    await api.updateView(p.projectId, view.viewId, { filters: { labels: [], statusIds: [], issueTypes: [] } });
+    assert.equal((await api.issues(p.projectId, { viewId: view.viewId })).length, 106);
+    const archived = p.issueStatuses.find(s => s.title === 'archived')!.statusId;
+    const protectedView = await api.createView(p.projectId, { title: 'Archived', filters: { labels: [], statusIds: [archived], issueTypes: [] } });
+    await assert.rejects(api.updateProject(p.projectId, { issueStatuses: renamed.issueStatuses.filter(s => s.statusId !== archived) }), failure(409));
+    await api.deleteView(p.projectId, protectedView.viewId);
+    await api.updateProject(p.projectId, { issueStatuses: renamed.issueStatuses.filter(s => s.statusId !== archived) });
+    await assert.rejects(api.createView(p.projectId, { title: 'Foreign status', filters: { labels: [], statusIds: [project.issueStatuses[0]!.statusId], issueTypes: [] } }), failure(400));
+    await assert.rejects(api.issues(project.projectId, { viewId: view.viewId }), failure(404));
+    await assert.rejects(api.deleteView(project.projectId, view.viewId), failure(404));
+    await bob.deleteView(p.projectId, view.viewId);
+    assert.deepEqual(await api.views(p.projectId), []);
+    assert.equal((await api.issues(p.projectId)).length, 106);
+    await api.createView(p.projectId, { title: 'Delete with project', filters: { labels: [], statusIds: [], issueTypes: [] } });
+    await api.deleteProject(p.projectId);
+    assert.equal((await pool.query('SELECT 1 FROM project_views WHERE project_id=$1', [p.projectId])).rowCount, 0);
   });
   await t.test('global issue types and parent relationships, including type conversion', async () => {
     assert.deepEqual(await api.issueTypes(), ISSUE_TYPES);
@@ -340,6 +385,14 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
       const notes = join(temp, 'notes.md'); await writeFile(notes, '## Updated via file');
       const updated = JSON.parse(await cli('--json', 'issue', 'update', 'CLI-1', '--notes-file', notes, '--status', 'archived', '--assignee', 'Someone external', '--labels', 'cli,test')) as Issue;
       assert.equal(updated.notes, '## Updated via file'); assert.equal(updated.status.title, 'archived');
+      const view = JSON.parse(await cli('--json', 'view', 'create', 'CLI', 'CLI work', '--labels', 'cli,test', '--statuses', 'archived,backlog', '--issue-types', updated.issueType)) as ProjectView;
+      assert.equal((JSON.parse(await cli('--json', 'view', 'list', 'CLI')) as ProjectView[])[0]!.viewId, view.viewId);
+      assert.deepEqual((JSON.parse(await cli('--json', 'issue', 'list', 'CLI', '--view', String(view.viewId))) as Issue[]).map(i => i.issueKey), ['CLI-1']);
+      const editedView = JSON.parse(await cli('--json', 'view', 'update', 'CLI', String(view.viewId), '--title', 'Renamed view', '--labels', '')) as ProjectView;
+      assert.equal(editedView.title, 'Renamed view'); assert.deepEqual(editedView.filters.labels, []);
+      assert.deepEqual(editedView.filters.statusIds, view.filters.statusIds);
+      assert.equal((JSON.parse(await cli('--json', 'view', 'show', 'CLI', String(view.viewId))) as ProjectView).title, 'Renamed view');
+      await cli('view', 'delete', 'CLI', String(view.viewId), '--yes');
       const statusesFile = join(temp, 'statuses.json');
       await writeFile(statusesFile, JSON.stringify([...p.issueStatuses, { title: 'blocked', isComplete: false }]));
       await cli('project', 'statuses', 'CLI', '--file', statusesFile);
@@ -368,7 +421,7 @@ test('primary workflows through the API and CLI (real Postgres)', async t => {
     await assert.rejects(api.project(project.projectId), failure(404));
     await assert.rejects(api.issue(remaining.issueId), failure(404));
     await assert.rejects(api.download(remainingFile.attachmentId), failure(404));
-    for (const table of ['projects', 'issues', 'issue_statuses', 'attachments', 'issue_links']) assert.equal((await pool.query('SELECT 1 FROM ' + table)).rowCount, 0);
+    for (const table of ['projects', 'issues', 'issue_statuses', 'attachments', 'issue_links', 'project_views']) assert.equal((await pool.query('SELECT 1 FROM ' + table)).rowCount, 0);
   });
   await t.test('expired sessions and revoked logout tokens cannot access the API', async () => {
     await pool.query("UPDATE sessions SET expires_at=now()-interval '1 minute' WHERE username='bob'");

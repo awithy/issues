@@ -1,11 +1,13 @@
 import type pg from 'pg';
-import type { Attachment, CreateIssueInput, Issue, UpdateIssueInput, Project, StatusInput, IssueFilters, IssuePagination, IssuePage } from '../shared/types.js';
+import type { Attachment, CreateIssueInput, Issue, UpdateIssueInput, Project, StatusInput, IssueFilters, IssuePagination, IssuePage, ProjectView, ViewInput } from '../shared/types.js';
 import { DEFAULT_STATUSES } from '../shared/types.js';
 import { HttpError, transaction } from './db.js';
 type Db = pg.Pool | pg.PoolClient;
 const statusJson = "json_build_object('statusId', s.status_id, 'title', s.title, 'isComplete', s.is_complete)";
+const viewColumns = 'view_id AS "viewId", project_id AS "projectId", title, filters';
 const projectSelect =   "SELECT p.project_id AS \"projectId\", p.title, p.key, " +
-  "COALESCE((SELECT json_agg(" + statusJson + " ORDER BY s.position) FROM issue_statuses s WHERE s.project_id=p.project_id), '[]') AS \"issueStatuses\" FROM projects p";
+  "COALESCE((SELECT json_agg(" + statusJson + " ORDER BY s.position) FROM issue_statuses s WHERE s.project_id=p.project_id), '[]') AS \"issueStatuses\", " +
+  "COALESCE((SELECT json_agg(v ORDER BY v.\"viewId\") FROM (SELECT " + viewColumns + " FROM project_views WHERE project_id=p.project_id) v), '[]') AS views FROM projects p";
 const attachmentColumns = 'attachment_id AS "attachmentId", filename, content_type AS "contentType", octet_length(data) AS size, created_at AS "createdAt"';
 const issueSelect =   "SELECT i.issue_id AS \"issueId\", i.project_id AS \"projectId\", p.key || '-' || i.issue_number AS \"issueKey\", " +
   "i.issue_type AS \"issueType\", i.parent_issue_id AS \"parentIssueId\", i.title, i.description, i.notes, i.labels, i.assignee, i.created_at AS \"createdAt\", i.updated_at AS \"updatedAt\", i.resolution_date AS \"resolutionDate\", " + statusJson + " AS status, " +
@@ -43,6 +45,7 @@ export class Repository {
         const removed = project.issueStatuses.filter(s => !keep.includes(s.statusId)).map(s => s.statusId);
         const used = await db.query('SELECT 1 FROM issues WHERE project_id=$1 AND status_id=ANY($2::int[]) LIMIT 1', [id, removed]);
         if (used.rowCount) throw new HttpError(409, 'Move issues out of a status before deleting it');
+        if (project.views.some(v => v.filters.statusIds.some(id => removed.includes(id)))) throw new HttpError(409, 'Remove the status from saved views before deleting it');
         await db.query('DELETE FROM issue_statuses WHERE project_id=$1 AND status_id=ANY($2::int[])', [id, removed]);
         for (const [position, status] of input.issueStatuses.entries()) {
           if (status.statusId !== undefined) await db.query('UPDATE issue_statuses SET title=$2, is_complete=$3, position=$4 WHERE status_id=$1', [status.statusId, status.title, status.isComplete, position]);
@@ -56,12 +59,40 @@ export class Repository {
     const result = await this.pool.query('DELETE FROM projects WHERE project_id=$1', [id]);
     if (!result.rowCount) throw new HttpError(404, 'Project not found');
   }
+  async views(projectId: number) { return (await this.project(projectId)).views; }
+  async view(projectId: number, viewId: number, db: Db = this.pool) {
+    const row = (await db.query<ProjectView>('SELECT ' + viewColumns + ' FROM project_views WHERE project_id=$1 AND view_id=$2', [projectId, viewId])).rows[0];
+    if (!row) throw new HttpError(404, 'View not found'); return row;
+  }
+  async saveView(projectId: number, input: Partial<ViewInput>, viewId?: number) {
+    return transaction(this.pool, async db => {
+      await db.query('SELECT project_id FROM projects WHERE project_id=$1 FOR UPDATE', [projectId]);
+      const project = await this.project(projectId, db);
+      const current = viewId === undefined ? undefined : await this.view(projectId, viewId, db);
+      const title = input.title ?? current!.title;
+      const filters = input.filters ?? current!.filters;
+      if (filters.statusIds.some(id => !project.issueStatuses.some(s => s.statusId === id))) throw new HttpError(400, 'Status does not belong to this project');
+      const values = [projectId, title, JSON.stringify(filters)];
+      if (viewId === undefined) return (await db.query<ProjectView>('INSERT INTO project_views(project_id,title,filters) VALUES ($1,$2,$3) RETURNING ' + viewColumns, values)).rows[0]!;
+      return (await db.query<ProjectView>('UPDATE project_views SET title=$2,filters=$3 WHERE project_id=$1 AND view_id=$4 RETURNING ' + viewColumns, [...values, viewId])).rows[0]!;
+    });
+  }
+  async deleteView(projectId: number, viewId: number) {
+    const result = await this.pool.query('DELETE FROM project_views WHERE project_id=$1 AND view_id=$2', [projectId, viewId]);
+    if (!result.rowCount) throw new HttpError(404, 'View not found');
+  }
   async issues(projectId: number, filters: IssueFilters): Promise<Issue[]>;
   async issues(projectId: number, filters: IssueFilters, pagination: IssuePagination): Promise<IssuePage>;
   async issues(projectId: number, filters: IssueFilters, pagination?: IssuePagination): Promise<Issue[] | IssuePage> {
     await this.project(projectId);
     const values: unknown[] = [projectId];
     let where = ' WHERE i.project_id=$1';
+    if (filters.viewId) {
+      const view = await this.view(projectId, filters.viewId);
+      if (view.filters.labels.length) { values.push(view.filters.labels); where += ' AND i.labels @> $' + values.length + '::text[]'; }
+      if (view.filters.statusIds.length) { values.push(view.filters.statusIds); where += ' AND i.status_id=ANY($' + values.length + '::int[])'; }
+      if (view.filters.issueTypes.length) { values.push(view.filters.issueTypes); where += ' AND i.issue_type=ANY($' + values.length + '::text[])'; }
+    }
     if (filters.statusId) { values.push(filters.statusId); where += ' AND i.status_id=$' + values.length; }
     if (filters.search) {
       values.push('%' + filters.search + '%'); const param = '$' + values.length;

@@ -1,5 +1,8 @@
 export interface IssueStatus { statusId: number; title: string; isComplete: boolean }
-export interface Project { projectId: number; title: string; key: string; issueStatuses: IssueStatus[] }
+export interface ViewFilters { labels: string[]; statusIds: number[]; issueTypes: IssueType[] }
+export interface ViewInput { title: string; filters: ViewFilters }
+export interface ProjectView extends ViewInput { viewId: number; projectId: number }
+export interface Project { projectId: number; title: string; key: string; issueStatuses: IssueStatus[]; views: ProjectView[] }
 export interface Attachment { attachmentId: number; filename: string; contentType: string; size: number; createdAt: string }
 export interface LinkedIssue { issueId: number; projectId: number; issueKey: string; title: string }
 export type IssueType = string;
@@ -14,7 +17,7 @@ export interface IssueInput { title: string; issueType?: IssueType; parentIssueI
 export interface CreateIssueInput extends IssueInput { issueNumber?: number; createdAt?: string; updatedAt?: string }
 export interface UpdateIssueInput extends Partial<IssueInput> { updatedAt?: string }
 export interface StatusInput { statusId?: number; title: string; isComplete: boolean }
-export interface IssueFilters { statusId?: number; search?: string }
+export interface IssueFilters { statusId?: number; search?: string; viewId?: number }
 export const ISSUE_PAGE_SIZES = [100, 500, 1000] as const;
 export type IssuePageSize = typeof ISSUE_PAGE_SIZES[number];
 export interface IssuePagination { page: number; pageSize: IssuePageSize }

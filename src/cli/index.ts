@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir, chmod, rm } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, basename, resolve } from 'node:path';
 import { ApiClient } from '../shared/client.js';
-import type { Issue, UpdateIssueInput, Project, StatusInput } from '../shared/types.js';
+import type { Issue, UpdateIssueInput, Project, StatusInput, ViewInput } from '../shared/types.js';
 import { readPassword } from './password.js';
 
 const sessionFile = process.env.ISSUES_CONFIG || resolve(homedir(), '.config/minimal-issues/session.json');
@@ -101,12 +101,44 @@ projects.command('statuses <project>').description('Show statuses, or replace th
     print(await (await api()).updateProject(p.projectId, { issueStatuses: statuses }));
   });
 projects.command('delete <project>').option('--yes', 'Confirm permanent project, issue, and attachment deletion').action(async (ref, options) => { confirm(options); await (await api()).deleteProject((await project(ref)).projectId); console.log('Project permanently deleted'); });
+const views = program.command('view').description('Manage shared saved project views');
+const commaList = (value: string) => value.split(',').map(s => s.trim()).filter(Boolean);
+function viewOptions(command: Command) {
+  return command.option('--labels <comma-separated>', 'Require all labels; empty string clears')
+    .option('--statuses <comma-separated>', 'Match any status name or ID; empty string clears')
+    .option('--issue-types <comma-separated>', 'Match any global issue type; empty string clears');
+}
+views.command('list <project>').action(async ref => print((await project(ref)).views));
+views.command('show <project> <view-id>').action(async (ref, id) => print(await (await api()).view((await project(ref)).projectId, Number(id))));
+viewOptions(views.command('create <project> <title>')).action(async (ref, title, options) => {
+  const p = await project(ref);
+  print(await (await api()).createView(p.projectId, { title, filters: {
+    labels: commaList(options.labels ?? ''), statusIds: commaList(options.statuses ?? '').map(s => statusId(p, s)), issueTypes: commaList(options.issueTypes ?? ''),
+  } }));
+});
+viewOptions(views.command('update <project> <view-id>').option('--title <title>')).action(async (ref, id, options) => {
+  const p = await project(ref); const client = await api();
+  const data: Partial<ViewInput> = {};
+  if (options.title !== undefined) data.title = options.title;
+  if (options.labels !== undefined || options.statuses !== undefined || options.issueTypes !== undefined) {
+    const current = await client.view(p.projectId, Number(id));
+    data.filters = {
+      labels: options.labels === undefined ? current.filters.labels : commaList(options.labels),
+      statusIds: options.statuses === undefined ? current.filters.statusIds : commaList(options.statuses).map(s => statusId(p, s)),
+      issueTypes: options.issueTypes === undefined ? current.filters.issueTypes : commaList(options.issueTypes),
+    };
+  }
+  print(await client.updateView(p.projectId, Number(id), data));
+});
+views.command('delete <project> <view-id>').option('--yes', 'Confirm permanent view deletion (issues are unchanged)').action(async (ref, id, options) => {
+  confirm(options); await (await api()).deleteView((await project(ref)).projectId, Number(id)); console.log('View permanently deleted');
+});
 const issues = program.command('issue').description('Manage issues');
 issues.command('types').description('List global issue types').action(async () => print(await (await api()).issueTypes()));
-issues.command('list <project>').option('--status <name-or-id>').option('--search <text>')
+issues.command('list <project>').option('--status <name-or-id>').option('--search <text>').option('--view <view-id>', 'Apply a saved project view')
   .action(async (ref, options) => {
     const p = await project(ref);
-    const list = await (await api()).issues(p.projectId, { statusId: options.status ? statusId(p, options.status) : undefined, search: options.search });
+    const list = await (await api()).issues(p.projectId, { statusId: options.status ? statusId(p, options.status) : undefined, search: options.search, viewId: options.view === undefined ? undefined : Number(options.view) });
     print(list, list.map(i => ({ key: i.issueKey, title: i.title, type: i.issueType, parent: i.parentIssueId, status: i.status.title, assignee: i.assignee, labels: i.labels.join(', ') })));
   });
 issueOptions(issues.command('create <project> <title>')

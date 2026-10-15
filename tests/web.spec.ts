@@ -214,6 +214,80 @@ test('issue pagination: sizes, navigation, filters, and shrinking results', asyn
   await page.request.delete(url + '/api/projects/' + project.projectId);
 });
 
+test('saved views: sidebar, persisted filters, shared table and editing/deletion', async ({ page }) => {
+  page.on('dialog', dialog => dialog.accept());
+  await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
+  const project = await (await page.request.post(url + '/api/projects', { data: { title: 'View project', key: 'VIEW' } })).json() as Project;
+  const backlog = project.issueStatuses[0]!.statusId;
+  const done = project.issueStatuses.find(s => s.title === 'done')!.statusId;
+  const labels = ['frontend', 'urgent'];
+  for (const data of [
+    { title: 'Matching bug', issueType: 'Bug', labels },
+    { title: 'Matching task', issueType: 'Task', labels, statusId: done },
+    { title: 'Missing label', issueType: 'Bug', labels: ['frontend'] },
+    { title: 'Wrong status', issueType: 'Bug', labels, statusId: project.issueStatuses[1]!.statusId },
+    { title: 'Wrong type', issueType: 'Story', labels },
+  ]) await page.request.post(url + '/api/projects/' + project.projectId + '/issues', { data });
+  await page.goto(url + '/#/projects/' + project.projectId);
+  const rows = page.locator('.issues-table tbody tr');
+  await expect(rows).toHaveCount(5);
+  await page.getByRole('button', { name: 'Create view under View project', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('View title', { exact: true }).fill('Urgent work');
+  await dialog.getByLabel('Labels', { exact: true }).fill('frontend, urgent');
+  await dialog.getByRole('checkbox', { name: 'backlog', exact: true }).check();
+  await dialog.getByRole('checkbox', { name: 'done', exact: true }).check();
+  await dialog.getByRole('checkbox', { name: 'Bug', exact: true }).check();
+  await dialog.getByRole('checkbox', { name: 'Task', exact: true }).check();
+  await dialog.getByRole('button', { name: 'Create view', exact: true }).click();
+  await expect(page).toHaveURL(/\/views\/\d+$/);
+  const viewUrl = page.url();
+  await expect(page.getByRole('heading', { name: 'Urgent work', exact: true })).toBeVisible();
+  await expect(page.locator('.project-nav-group').filter({ hasText: 'View project' }).getByRole('link', { name: 'Urgent work', exact: true })).toHaveAttribute('aria-current', 'page');
+  await expect(rows).toHaveCount(2);
+  await expect(rows).toContainText(['Matching task', 'Matching bug']);
+  await expect(page.locator('.toolbar-left')).toContainText('1 complete');
+  await page.reload();
+  await expect(rows).toHaveCount(2);
+  await page.getByRole('link', { name: 'Matching bug', exact: true }).click();
+  await expect(page).toHaveURL(/\/views\/\d+\/issues\/VIEW-1$/);
+  await page.getByRole('button', { name: 'Back to issues' }).click();
+  await expect(page).toHaveURL(viewUrl);
+  await page.getByRole('textbox', { name: 'Search issues', exact: true }).fill('task');
+  await expect(rows).toHaveCount(1);
+  await page.getByRole('link', { name: /View project VIEW$/ }).click();
+  await expect(rows).toHaveCount(5);
+  await expect(page.getByRole('textbox', { name: 'Search issues', exact: true })).toHaveValue('');
+  await page.getByRole('link', { name: 'Urgent work', exact: true }).click();
+  await expect(rows).toHaveCount(2);
+  await page.getByLabel('Status of VIEW-1').selectOption({ label: 'design' });
+  await expect(rows).toHaveCount(1);
+  await page.getByRole('button', { name: 'Edit view', exact: true }).click();
+  await expect(dialog.getByLabel('Labels', { exact: true })).toHaveValue('frontend, urgent');
+  await expect(dialog.getByRole('checkbox', { name: 'backlog', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'done', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'Bug', exact: true })).toBeChecked();
+  await expect(dialog.getByRole('checkbox', { name: 'Task', exact: true })).toBeChecked();
+  await dialog.getByLabel('View title', { exact: true }).fill('All bugs');
+  await dialog.getByLabel('Labels', { exact: true }).fill('');
+  await dialog.getByRole('checkbox', { name: 'backlog', exact: true }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'done', exact: true }).uncheck();
+  await dialog.getByRole('checkbox', { name: 'Task', exact: true }).uncheck();
+  await dialog.getByRole('button', { name: 'Save view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'All bugs', exact: true })).toBeVisible();
+  await expect(rows).toHaveCount(3);
+  await page.reload();
+  await expect(rows).toHaveCount(3);
+  await page.getByRole('button', { name: 'Edit view', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Permanently delete view', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'View project', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'All bugs', exact: true })).toHaveCount(0);
+  await expect(rows).toHaveCount(5);
+  await page.goto(viewUrl);
+  await expect(page.getByRole('heading', { name: 'View not found', exact: true })).toBeVisible();
+  await page.request.delete(url + '/api/projects/' + project.projectId);
+});
+
 test('issue links: cross-project navigation, symmetric display, and unlinking', async ({ page }) => {
   await page.request.post(url + '/api/auth/login', { data: { username: 'alice', password: 'alice-password' } });
   const project = await (await page.request.post(url + '/api/projects', { data: { title: 'Linked work', key: 'LINK' } })).json() as Project;

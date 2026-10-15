@@ -10,6 +10,7 @@ For architecture, data models, API contracts, authentication details, testing st
 - Global issue types: **Bug, Issue, Task, Sub-Task, Story**. Only Sub-Tasks have a parent, and a parent is required.
 - Undirected issue links, including across projects, visible from either issue.
 - Searchable issue table with pagination (100, 500, or 1000 items per page), status filters, and inline status changes.
+- Shared saved views under each project, filtering by labels (match all), statuses (match any), and issue types (match any).
 - Markdown Description and Notes with previews, labels, free-text assignees, and an optional resolution date.
 - Customizable statuses with unrestricted transitions; defaults are **backlog → design → ready → in progress → done → archived**.
 - Multi-user login; every authenticated user has full access.
@@ -132,6 +133,21 @@ issctl issue update --help
 
 The CLI saves login information in `~/.config/minimal-issues/session.json`. Override that path with `ISSUES_CONFIG`, or select a different API URL with `ISSUES_API_URL`.
 
+### Saved views
+
+Click **+ New view** beneath a project in the sidebar, give it a title, and choose its filters. Views use the same issue table; **Edit view** changes the title/filters or deletes the view without deleting issues. Filters combine with AND across categories; an empty category matches everything. Labels are exact and case-sensitive. Views persist in the database and are shared with all users.
+
+```sh
+issctl view create WEB "Urgent work" --labels frontend,urgent \
+  --statuses "backlog,in progress" --issue-types Bug,Task
+issctl view list WEB
+issctl issue list WEB --view 1
+issctl view update WEB 1 --title "Frontend work" --labels frontend
+issctl view delete WEB 1 --yes
+```
+
+Use a view ID from `view list`. Remove a status from saved views before deleting that status.
+
 ### Customize statuses
 
 The web app exposes status editing under **Project settings**. In the CLI:
@@ -145,7 +161,7 @@ issctl project statuses WEB --file statuses.json
 
 `issctl --json` writes JSON without an npm script banner, so its output can be redirected directly to a file.
 
-Each status is `{ "statusId": 1, "title": "backlog", "isComplete": false }`. Keep at least one status, and move issues out of a status before removing it.
+Each status is `{ "statusId": 1, "title": "backlog", "isComplete": false }`. Keep at least one status, and move issues out of a status and remove it from saved views before deleting it.
 
 ## Tests
 
