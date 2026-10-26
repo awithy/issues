@@ -8,5 +8,6 @@ const pool = new pg.Pool({ connectionString: databaseUrl() });
 await migrate(pool);
 const port = Number(process.env.PORT || 3031);
 const app = createApp({ pool, users, publicOrigin: process.env.PUBLIC_ORIGIN, secureCookies: process.env.COOKIE_SECURE === 'true' });
-const server = app.listen(port, () => console.log('Issues API listening on http://localhost:' + port));
+const host = process.env.HOST || '127.0.0.1';
+const server = app.listen(port, host, () => console.log(`Issues API listening on http://${host}:${port}`));
 for (const signal of ['SIGINT', 'SIGTERM'] as const) process.on(signal, () => { server.close(() => { void pool.end().then(() => process.exit(0)); }); });

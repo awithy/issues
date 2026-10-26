@@ -458,6 +458,7 @@ Runtime configuration is read from environment variables, with `.env` support:
 | Variable | Purpose |
 | --- | --- |
 | `DATABASE_URL` | Postgres connection string. |
+| `HOST` | Node bind address; defaults to `127.0.0.1` so external access goes through the reverse proxy. |
 | `PORT` | Node listening port; defaults to `3031`. |
 | `USERS_FILE` | User configuration path; defaults to `config/users.json`. |
 | `PUBLIC_ORIGIN` | Exact public browser origin allowed for mutations, useful behind a reverse proxy. |

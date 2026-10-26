@@ -49,6 +49,7 @@ Copy `.env.example` to `.env` and adjust as needed:
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `DATABASE_URL` | `postgres://issues:issues@localhost:5432/issues` | Postgres connection string |
+| `HOST` | `127.0.0.1` | API/production bind address |
 | `PORT` | `3031` | API/production web port |
 | `USERS_FILE` | `config/users.json` | User config loaded at API startup |
 | `PUBLIC_ORIGIN` | unset in code; example uses `http://localhost:5173` | Additional permitted browser origin, useful behind a reverse proxy |
