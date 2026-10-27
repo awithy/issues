@@ -7,20 +7,33 @@ import { dirname, basename, resolve } from 'node:path';
 import { ApiClient } from '../shared/client.js';
 import type { Issue, UpdateIssueInput, Project, StatusInput, ViewInput } from '../shared/types.js';
 import { readPassword } from './password.js';
+import { createTransport } from './transport.js';
 
 const sessionFile = process.env.ISSUES_CONFIG || resolve(homedir(), '.config/minimal-issues/session.json');
 type Session = { apiUrl: string; token: string; username: string };
+type ConnectionDefaults = { apiUrl?: string; clientCert?: string; clientKey?: string };
+let defaults: ConnectionDefaults = {};
 const program = new Command().name('issctl').description('A small issue tracker. All operations use the API.')
   .option('--api <url>', 'API base URL, including /api', process.env.ISSUES_API_URL)
+  .option('--client-cert <path>', 'PEM client certificate, including intermediate certificates (ISSUES_CLIENT_CERT)', process.env.ISSUES_CLIENT_CERT)
+  .option('--client-key <path>', 'PEM client private key (ISSUES_CLIENT_KEY)', process.env.ISSUES_CLIENT_KEY)
   .option('--json', 'Print machine-readable JSON');
+let transport: Awaited<ReturnType<typeof createTransport>> | undefined;
+program.hook('preAction', async () => {
+  const connectionFile = resolve(dirname(sessionFile), 'connection.json');
+  try { defaults = JSON.parse(await readFile(connectionFile, 'utf8')) as ConnectionDefaults; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+  const options = program.opts();
+  transport = await createTransport(options.clientCert ?? defaults.clientCert, options.clientKey ?? defaults.clientKey);
+});
 async function session(): Promise<Session | undefined> {
   try { return JSON.parse(await readFile(sessionFile, 'utf8')) as Session; }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
 }
 async function api() {
   const saved = await session();
-  const url = String(program.opts().api || saved?.apiUrl || 'http://localhost:3031/api').replace(/\/$/, '');
-  return new ApiClient(url, saved?.apiUrl === url ? saved.token : undefined);
+  const url = String(program.opts().api || defaults.apiUrl || saved?.apiUrl || 'http://localhost:3031/api').replace(/\/$/, '');
+  return new ApiClient(url, saved?.apiUrl === url ? saved.token : undefined, transport?.fetch);
 }
 function print(value: unknown, rows?: Record<string, unknown>[]) {
   if (program.opts().json || !rows) console.log(JSON.stringify(value, null, 2));
@@ -183,3 +196,4 @@ attachments.command('download <attachment-id> <output>').action(async (id, path)
 attachments.command('delete <attachment-id>').option('--yes', 'Confirm permanent attachment deletion').action(async (id, options) => { confirm(options); await (await api()).deleteAttachment(Number(id)); console.log('Attachment permanently deleted'); });
 try { await program.parseAsync(); }
 catch (error) { console.error('Error: ' + (error instanceof Error ? error.message : String(error))); process.exitCode = 1; }
+finally { await transport?.close(); }

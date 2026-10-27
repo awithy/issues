@@ -3,12 +3,12 @@ export class ApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 export class ApiClient {
-  constructor(public baseUrl = '/api', public token?: string) {}
+  constructor(public baseUrl = '/api', public token?: string, private fetch: typeof globalThis.fetch = globalThis.fetch) {}
   async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     if (this.token) headers.set('Authorization', 'Bearer ' + this.token);
     if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-    const response = await fetch(this.baseUrl + path, { ...init, headers, credentials: 'same-origin' });
+    const response = await this.fetch(this.baseUrl + path, { ...init, headers, credentials: 'same-origin' });
     if (!response.ok) {
       const body = await response.json().catch(() => ({})) as { error?: string };
       throw new ApiError(body.error || response.statusText, response.status);
@@ -63,7 +63,7 @@ export class ApiClient {
   }
   attachmentUrl(id: number, preview = false) { return this.baseUrl + '/attachments/' + id + (preview ? '?preview=1' : ''); }
   async download(id: number): Promise<Blob> {
-    const response = await fetch(this.attachmentUrl(id), { headers: this.token ? { Authorization: 'Bearer ' + this.token } : {}, credentials: 'same-origin' });
+    const response = await this.fetch(this.attachmentUrl(id), { headers: this.token ? { Authorization: 'Bearer ' + this.token } : {}, credentials: 'same-origin' });
     if (!response.ok) throw new ApiError('Download failed', response.status);
     return response.blob();
   }

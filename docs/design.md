@@ -422,6 +422,8 @@ Search/filter changes request fresh API results after a short delay. Mutations u
 
 The CLI is built with Commander and the shared `ApiClient`. Command groups are `project`, `view`, `issue`, and `attachment`, with `login`, `logout`, and `whoami` at the top level.
 
+For reverse proxies requiring mTLS, `--client-cert` / `--client-key` select a PEM certificate chain and private key, defaulting to `ISSUES_CLIENT_CERT` / `ISSUES_CLIENT_KEY`. Both are required together; explicit flags take precedence. The CLI creates an Undici agent for the command and closes it afterward. It injects a fetch function into the shared client, covering JSON requests, uploads, and downloads without importing Node TLS code into the browser bundle. Server certificate verification stays enabled, and normal API authentication is still required. Certificate contents and paths are not persisted in session files. Optional per-user defaults (`apiUrl`, `clientCert`, `clientKey`) are read from `connection.json` alongside the session file, so relocating the session with `ISSUES_CONFIG` also isolates connection defaults. Precedence is flags, environment variables, connection defaults, saved session URL, then the built-in URL. Certificate paths in JSON must be absolute. Logout leaves connection defaults in place.
+
 Project arguments accept a key or ID. Issue arguments accept a key or ID. `issue create --issue-number <number>` sets an explicit per-project number; this option is not available on update and is not exposed in the web editor. `--created-at` applies only to creation. `--updated-at` applies to create/update and overrides the update timestamp with an ISO 8601 timestamp with timezone; it can be used alone for timestamp finalization. `--resolution-date` applies to create/update and accepts an ISO 8601 timestamp with timezone or an empty string to clear. `issue show` includes creation, update, and resolution timestamps. Status arguments accept a name or ID, resolved from the project’s API response. `issue types` lists the global types; `--issue-type` sets a type and `--parent` resolves an issue key or ID. Converting a Sub-Task requires `--parent ""` together with the new type. Description and Notes can be supplied inline or read from local Markdown files. Status configuration can be supplied as a JSON array, preserving existing IDs.
 
 `issue link <issue> <other-issue>` adds an undirected link; `issue links <issue>` lists linked summaries, and `issue unlink <issue> <other-issue>` removes a link from either end without confirmation or issue deletion. `issue show` also includes linked issues. Both endpoints accept an issue key or ID.
@@ -507,6 +509,8 @@ Primary coverage includes:
 - CLI login, output, edits, file operations, status configuration, and deletes.
 
 Important failures include unauthenticated access, bad credentials, cross-origin mutations, duplicate project keys, missing records, cross-project status assignment, and removal of an in-use status. A failed status update is checked for transactional rollback.
+
+`tests/cli-tls.test.ts` generates temporary certificates with OpenSSL and runs the actual CLI against a local HTTPS server requiring client certificates, without Postgres. It covers login, authenticated JSON calls, binary upload/download, flag precedence over environment variables, and incomplete certificate configuration.
 
 ### Browser workflows
 

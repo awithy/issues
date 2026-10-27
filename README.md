@@ -138,6 +138,28 @@ issctl issue update --help
 
 The CLI saves login information in `~/.config/minimal-issues/session.json`. Override that path with `ISSUES_CONFIG`, or select a different API URL with `ISSUES_API_URL`.
 
+For HTTPS servers requiring a client certificate (mTLS), supply both `--client-cert <path>` and `--client-key <path>`, or set `ISSUES_CLIENT_CERT` and `ISSUES_CLIENT_KEY`. Use PEM files, with any intermediate certificates included in the certificate file. Flags override environment variables. Keep private keys readable only by your user; mTLS does not replace the normal `issctl login`.
+
+```sh
+export ISSUES_API_URL=https://issues.example.com/api
+export ISSUES_CLIENT_CERT="$HOME/keys/client.fullchain.pem"
+export ISSUES_CLIENT_KEY="$HOME/keys/client.key.pem"
+issctl login alice
+issctl whoami
+```
+
+To avoid exports, save connection defaults in `~/.config/minimal-issues/connection.json` (alongside the session file if `ISSUES_CONFIG` is overridden):
+
+```json
+{
+  "apiUrl": "https://issues.example.com/api",
+  "clientCert": "/absolute/path/to/client.fullchain.pem",
+  "clientKey": "/absolute/path/to/client.key.pem"
+}
+```
+
+Use absolute file paths, not `~` or `$HOME` in JSON. Precedence is flags, environment variables, connection defaults, then the saved session URL or built-in API default. Logout removes the session but keeps connection defaults.
+
 ### Saved views
 
 Click **+ New view** beneath a project in the sidebar, give it a title, and choose its filters. Views use the same issue table; **Edit view** changes the title/filters or deletes the view without deleting issues. **Duplicate view** opens a copy with the same saved filters and a default “Copy of …” title; edit it if needed, then create it in the same project. The original view and issues are unchanged. Filters combine with AND across categories; an empty category matches everything. Labels are exact and case-sensitive. Views persist in the database and are shared with all users.
@@ -172,7 +194,7 @@ Each status is `{ "statusId": 1, "title": "backlog", "isComplete": false }`. Kee
 
 ## Tests
 
-Tests require a running Postgres database and a user with permission to create schemas. They use isolated schemas, leaving application tables intact. Set `TEST_DATABASE_URL` to use a separate test database; otherwise `DATABASE_URL` is used.
+Tests require OpenSSL (for temporary mTLS test certificates), a running Postgres database, and a user with permission to create schemas. They use isolated schemas, leaving application tables intact. Set `TEST_DATABASE_URL` to use a separate test database; otherwise `DATABASE_URL` is used.
 
 ```sh
 docker compose up -d --wait
